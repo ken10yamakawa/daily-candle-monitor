@@ -42,14 +42,11 @@
     </div>
 
     <div class="header-right">
-      <!-- 市場スキャナーボタン (PC用) -->
-      <button class="btn btn-accent btn-icon hide-mobile" id="btnOpenScannerModal" title="日経225やNASDAQ100の特異値動き銘柄を抽出">
+      <button class="btn btn-accent btn-icon" id="btnHeaderAddAll" title="全ユニバース銘柄を一括監視リストに追加">
         <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="11" cy="11" r="8"/>
-          <line x1="21" y1="21" x2="16.65" y2="16.65"/>
-          <polygon points="11 8 13 12 9 12 11 8" fill="currentColor"/>
+          <path d="M12 5v14M5 12h14" stroke-linecap="round"/>
         </svg>
-        <span>⚡ 市場スキャナー</span>
+        <span>全銘柄追加</span>
       </button>
 
       <button class="btn btn-secondary btn-icon" id="btnScanNow" title="全銘柄の日足を即時スキャン">
@@ -141,7 +138,7 @@
               <span>シグナルで絞り込み</span>
               <span class="filter-count-badge" id="signalFilterCount" style="display: none;">0</span>
             </div>
-            <button class="btn-clear-filter" id="btnClearSignalFilter" title="シグナル選択を解除">クリア</button>
+            <button type="button" class="btn-clear-filter" id="btnClearSignalFilter" title="シグナル選択を解除">クリア</button>
           </div>
           <div class="signal-checkbox-grid" id="signalCheckboxGrid">
             <label class="signal-check-chip" title="5日線が25日線を上抜け">
@@ -426,12 +423,6 @@
       </svg>
       <span>銘柄一覧</span>
     </button>
-    <button class="nav-item" data-nav="scanner">
-      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
-      </svg>
-      <span>スキャナー</span>
-    </button>
     <button class="nav-item relative" data-nav="alerts">
       <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
@@ -441,89 +432,6 @@
       <span>アラート</span>
     </button>
   </nav>
-
-  <!-- モーダル: 市場スキャナー (拡大ユニバース対応) -->
-  <div class="modal-overlay" id="scannerModal">
-    <div class="modal-card modal-card-lg">
-      <div class="modal-header">
-        <div class="modal-title-group">
-          <h3 class="modal-title">⚡ 市場スキャナー</h3>
-          <p class="modal-subtitle">日本株全225銘柄・グロース新興・米主要株・暗号資産の特異シグナルを一括抽出</p>
-        </div>
-        <button class="modal-close" id="closeScannerModal">&times;</button>
-      </div>
-
-      <!-- スキャナー条件設定バー -->
-      <div class="scanner-controls-bar">
-        <div class="scanner-ctrl-group">
-          <label for="scannerUniverseSelect">対象市場</label>
-          <select id="scannerUniverseSelect">
-            <option value="nikkei225" selected>日経225 (日本株主要全225銘柄)</option>
-            <option value="japan_growth">東証グロース・新興注目株 (AI・宇宙・バイオ等)</option>
-            <option value="japan_high_dividend">日本株 高配当・大型バリュー (商社・銀行等)</option>
-            <option value="nasdaq100">NASDAQ 100 (米国成長・主要ハイテク)</option>
-            <option value="sp500_top">S&P 500 大型主要株 (バリュー・金融・消費)</option>
-            <option value="crypto_forex">主要暗号資産 & 為替・コモディティ (ゴールド・原油)</option>
-          </select>
-        </div>
-
-        <div class="scanner-ctrl-group">
-          <label for="scannerVolumeFilter">最小出来高</label>
-          <select id="scannerVolumeFilter">
-            <option value="0">制限なし</option>
-            <option value="50000">5万株以上</option>
-            <option value="200000" selected>20万株以上 (推奨)</option>
-            <option value="1000000">100万株以上 (高流動性)</option>
-          </select>
-        </div>
-
-        <div class="scanner-ctrl-group">
-          <label for="scannerSignalFilter">シグナル種別</label>
-          <select id="scannerSignalFilter">
-            <option value="ALL" selected>すべての特異シグナル (過去1週間〜)</option>
-            <option value="volume_surge">🚀 出来高急増 (1.8倍〜)</option>
-            <option value="breakout_high">🎯 直近20日 新高値ブレイク</option>
-            <option value="golden_cross">✨ ゴールデンクロス (5x25)</option>
-            <option value="macd_golden_cross">🎯 MACD ゴールデンクロス</option>
-            <option value="price_surge">🔥 急騰 (+3.5%〜)</option>
-            <option value="price_plunge">🩸 急落 (-3.5%〜)</option>
-            <option value="bb_upper_touch">🌊 ボリンジャー +2σ 突破</option>
-            <option value="rsi_oversold">💎 RSI 底値 (30以下)</option>
-            <option value="rsi_overbought">⚡ RSI 過熱 (70以上)</option>
-          </select>
-        </div>
-
-        <button class="btn btn-accent btn-scanner-run" id="btnExecuteScan">
-          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" fill="currentColor"/>
-          </svg>
-          <span>スキャン実行</span>
-        </button>
-      </div>
-
-      <!-- スキャン結果サマリー & 一括追加バー -->
-      <div class="scanner-results-header" id="scannerResultsHeader" style="display: none;">
-        <div class="results-stats">
-          <span class="badge badge-subtle" id="scannerStatsScanned">86 銘柄</span>
-          <span class="badge badge-signal-success" id="scannerStatsHits">15 抽出</span>
-          <span class="scan-time" id="scannerStatsTime">2.1秒</span>
-        </div>
-        <div class="results-actions">
-          <button class="btn btn-secondary btn-sm" id="btnSelectAllScanner">全選択</button>
-          <button class="btn btn-primary btn-sm" id="btnBatchAddToWatchlist" disabled>
-            + 一括監視登録 (<span id="selectedCount">0</span>)
-          </button>
-        </div>
-      </div>
-
-      <!-- スキャン結果リストコンテナ -->
-      <div class="scanner-results-container" id="scannerResultsContainer">
-        <div class="empty-placeholder">
-          「スキャン実行」を押すと、出来高と特異シグナルに該当する銘柄を瞬時に抽出します
-        </div>
-      </div>
-    </div>
-  </div>
 
   <!-- モーダル: 銘柄追加 -->
   <div class="modal-overlay" id="addStockModal">

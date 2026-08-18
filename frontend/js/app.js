@@ -15,8 +15,6 @@ const state = {
   chartManager: null,
   pollInterval: null,
   countdownInterval: null,
-  scannerResults: [],
-  selectedScannerSymbols: new Set(),
   selectedSignals: new Set(), // 特異シグナル複数選択フィルター
   sortKey: 'default',         // ウォッチリストのソートキー
   summarySortKey: 'signals_desc', // サマリーテーブルのソートキー
@@ -63,8 +61,6 @@ function setupEventListeners() {
       } else if (targetNav === 'watchlist') {
         mainChart.classList.remove('active-mobile');
         sidebar.classList.add('active-mobile');
-      } else if (targetNav === 'scanner') {
-        document.getElementById('scannerModal').classList.add('open');
       } else if (targetNav === 'alerts') {
         sidebar.classList.remove('active-mobile');
         mainChart.classList.add('active-mobile');
@@ -131,10 +127,13 @@ function setupEventListeners() {
   signalCheckboxes.forEach((cb) => {
     cb.addEventListener('change', (e) => {
       const val = e.target.value;
+      const chip = e.target.closest('.signal-check-chip');
       if (e.target.checked) {
         state.selectedSignals.add(val);
+        if (chip) chip.classList.add('active');
       } else {
         state.selectedSignals.delete(val);
+        if (chip) chip.classList.remove('active');
       }
       updateSignalFilterBadge();
       renderWatchlist();
@@ -142,15 +141,24 @@ function setupEventListeners() {
     });
   });
 
-  // シグナルフィルタークリアボタン
-  document.getElementById('btnClearSignalFilter').addEventListener('click', () => {
-    state.selectedSignals.clear();
-    signalCheckboxes.forEach((cb) => { cb.checked = false; });
-    updateSignalFilterBadge();
-    renderWatchlist();
-    renderMarketSummary();
-    showToast('シグナル絞り込みをクリアしました', 'info');
-  });
+  // シグナルフィルタークリアボタン (タッチ & クリック完全対応)
+  const clearBtn = document.getElementById('btnClearSignalFilter');
+  if (clearBtn) {
+    const doClear = (e) => {
+      if (e) e.preventDefault();
+      state.selectedSignals.clear();
+      signalCheckboxes.forEach((cb) => {
+        cb.checked = false;
+        const chip = cb.closest('.signal-check-chip');
+        if (chip) chip.classList.remove('active');
+      });
+      updateSignalFilterBadge();
+      renderWatchlist();
+      renderMarketSummary();
+      showToast('シグナル絞り込みをクリアしました', 'info');
+    };
+    clearBtn.addEventListener('click', doClear);
+  }
 
   // サマリーテーブルのソータブルヘッダー
   document.addEventListener('click', (e) => {
@@ -171,25 +179,10 @@ function setupEventListeners() {
     renderMarketSummary();
   });
 
-  // 全銘柄一括追加ボタン
-  document.getElementById('btnAddAllUniverses').addEventListener('click', async () => {
-    const btn = document.getElementById('btnAddAllUniverses');
-    if (!confirm('全ユニバース（日経225・グロース・高配当・NASDAQ100・S&P500・暗号資産＋為替）の全銘柄をウォッチリストに追加します。\n既に追加済みの銘柄はスキップされます。\n\n※ 合計約447銘柄が対象です。続けますか？')) return;
-
-    btn.disabled = true;
-    btn.innerHTML = '<span>追加中...</span>';
-    showToast('全銘柄をウォッチリストに追加しています...', 'info');
-    try {
-      const res = await fetch('/api/watchlist/add_all_universes', { method: 'POST' });
-      const data = await res.json();
-      showToast(`✅ ${data.added_count} 銘柄を追加しました（スキップ: ${data.skipped_count}）`, 'success');
-      await loadWatchlist();
-    } catch (err) {
-      showToast('全銘柄追加に失敗しました', 'danger');
-    } finally {
-      btn.disabled = false;
-      btn.innerHTML = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg><span>全銘柄追加</span>';
-    }
+  // 全銘柄一括追加ボタン (サイドバー & ヘッダー両方にバインド)
+  const addAllBtns = [document.getElementById('btnAddAllUniverses'), document.getElementById('btnHeaderAddAll')].filter(Boolean);
+  addAllBtns.forEach((btn) => {
+    btn.addEventListener('click', handleBatchAddAll);
   });
 
   // 下部タブ切り替え
@@ -249,66 +242,6 @@ function setupEventListeners() {
     }
   });
 
-  // 市場スキャナーモーダル
-  const scannerModal = document.getElementById('scannerModal');
-  document.getElementById('btnOpenScannerModal').addEventListener('click', () => {
-    scannerModal.classList.add('open');
-  });
-  document.getElementById('closeScannerModal').addEventListener('click', () => {
-    scannerModal.classList.remove('open');
-  });
-
-  // スキャン実行ボタン
-  document.getElementById('btnExecuteScan').addEventListener('click', executeScanner);
-
-  // スキャナー全選択ボタン
-  document.getElementById('btnSelectAllScanner').addEventListener('click', () => {
-    const allSelected = state.selectedScannerSymbols.size === state.scannerResults.length;
-    if (allSelected) {
-      state.selectedScannerSymbols.clear();
-    } else {
-      state.scannerResults.forEach((h) => state.selectedScannerSymbols.add(h.symbol));
-    }
-    updateScannerSelectionUI();
-  });
-
-  // 一括ウォッチリスト追加ボタン
-  document.getElementById('btnBatchAddToWatchlist').addEventListener('click', async () => {
-    const symbolsToAdd = Array.from(state.selectedScannerSymbols);
-    if (symbolsToAdd.length === 0) return;
-
-    const items = symbolsToAdd.map((sym) => {
-      const hit = state.scannerResults.find((h) => h.symbol === sym);
-      let cat = 'その他';
-      if (sym.includes('.T')) cat = '日本株';
-      else if (sym.includes('-USD')) cat = '暗号資産';
-      else if (sym.includes('=X') || sym.includes('=F')) cat = '為替';
-      else cat = '米国株';
-
-      return {
-        symbol: sym,
-        name: hit?.name || sym,
-        category: cat,
-      };
-    });
-
-    try {
-      const res = await fetch('/api/watchlist/batch_add', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items }),
-      });
-      const data = await res.json();
-      showToast(`${data.added_count} 銘柄をウォッチリストに追加しました`, 'success');
-      state.selectedScannerSymbols.clear();
-      updateScannerSelectionUI();
-      await loadWatchlist();
-      scannerModal.classList.remove('open');
-    } catch (err) {
-      showToast('一括追加に失敗しました', 'danger');
-    }
-  });
-
   // 銘柄追加モーダル
   const addStockModal = document.getElementById('addStockModal');
   document.getElementById('btnAddStockModal').addEventListener('click', () => {
@@ -318,6 +251,101 @@ function setupEventListeners() {
   document.getElementById('closeAddStockModal').addEventListener('click', () => {
     addStockModal.classList.remove('open');
   });
+  document.getElementById('cancelAddStock').addEventListener('click', () => {
+    addStockModal.classList.remove('open');
+  });
+
+  document.getElementById('addStockForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const symbol = document.getElementById('stockSymbolInput').value.trim();
+    const name = document.getElementById('stockNameInput').value.trim();
+    const category = document.getElementById('stockCategoryInput').value;
+
+    try {
+      const res = await fetch('/api/watchlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbol, name, category }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || '追加に失敗しました');
+      }
+      showToast(`銘柄 ${symbol} を追加しました`, 'success');
+      addStockModal.classList.remove('open');
+      document.getElementById('addStockForm').reset();
+      await loadWatchlist();
+      selectStock(symbol);
+    } catch (err) {
+      showToast(err.message, 'danger');
+    }
+  });
+
+  // ルール追加モーダル
+  const addRuleModal = document.getElementById('addRuleModal');
+  document.getElementById('btnOpenAddRuleModal').addEventListener('click', () => {
+    updateRuleSymbolOptions();
+    addRuleModal.classList.add('open');
+  });
+  document.getElementById('closeAddRuleModal').addEventListener('click', () => {
+    addRuleModal.classList.remove('open');
+  });
+  document.getElementById('cancelAddRule').addEventListener('click', () => {
+    addRuleModal.classList.remove('open');
+  });
+
+  document.getElementById('addRuleForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const symbol = document.getElementById('ruleTargetSymbol').value;
+    const rule_type = document.getElementById('ruleTypeSelect').value;
+    const title = document.getElementById('ruleTitleInput').value.trim();
+
+    try {
+      const res = await fetch('/api/rules', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbol, rule_type, title }),
+      });
+      if (!res.ok) throw new Error('ルール追加に失敗しました');
+      showToast(`監視ルール「${title}」を追加しました`, 'success');
+      addRuleModal.classList.remove('open');
+      document.getElementById('addRuleForm').reset();
+      await loadRules();
+    } catch (err) {
+      showToast(err.message, 'danger');
+    }
+  });
+}
+
+// 全銘柄一括追加処理 (PC・モバイル共通)
+async function handleBatchAddAll() {
+  const addAllBtns = [document.getElementById('btnAddAllUniverses'), document.getElementById('btnHeaderAddAll')].filter(Boolean);
+  
+  // モバイルでも確実に動作するシンプルな確認
+  const ok = window.confirm('全ユニバース（日経225・東証グロース・高配当・NASDAQ100・S&P500・暗号資産＋為替）の全400+銘柄を監視リストに追加しますか？');
+  if (!ok) return;
+
+  addAllBtns.forEach((b) => {
+    b.disabled = true;
+    b.innerHTML = '<span>追加中...</span>';
+  });
+  showToast('全銘柄をウォッチリストに追加しています...', 'info');
+
+  try {
+    const res = await fetch('/api/watchlist/add_all_universes', { method: 'POST' });
+    const data = await res.json();
+    showToast(`✅ ${data.added_count} 銘柄を追加しました（既存スキップ: ${data.skipped_count}）`, 'success');
+    await loadWatchlist();
+  } catch (err) {
+    showToast('全銘柄追加に失敗しました', 'danger');
+  } finally {
+    addAllBtns.forEach((b) => {
+      b.disabled = false;
+      b.innerHTML = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg><span>全銘柄追加</span>';
+    });
+  }
+}
+
   document.getElementById('cancelAddStock').addEventListener('click', () => {
     addStockModal.classList.remove('open');
   });
@@ -1011,158 +1039,6 @@ function showToast(msg, type = 'info') {
   }, 3500);
 }
 
-// ========================================================
-// 市場スキャナー実行 & レンダリング
-// ========================================================
-async function executeScanner() {
-  const btn = document.getElementById('btnExecuteScan');
-  const universe_id = document.getElementById('scannerUniverseSelect').value;
-  const min_volume = parseInt(document.getElementById('scannerVolumeFilter').value, 10);
-  const signal_filter = document.getElementById('scannerSignalFilter').value;
-
-  btn.disabled = true;
-  btn.innerHTML = '<span>スキャン中...</span>';
-
-  const container = document.getElementById('scannerResultsContainer');
-  container.innerHTML = `
-    <div class="loading-state">
-      <div class="spinner"></div>
-      <p>対象市場の日足データを一括分析中（数秒〜十数秒かかります）...</p>
-    </div>
-  `;
-
-  try {
-    const res = await fetch('/api/scanner/scan', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ universe_id, min_volume, signal_filter, force: true }),
-    });
-    const data = await res.json();
-    state.scannerResults = data.hits || [];
-    state.selectedScannerSymbols.clear();
-
-    // サマリーヘッダー更新
-    document.getElementById('scannerResultsHeader').style.display = 'flex';
-    document.getElementById('scannerStatsScanned').textContent = `${data.scanned_count} 銘柄スキャン`;
-    document.getElementById('scannerStatsHits').textContent = `${data.hit_count} 銘柄抽出`;
-    document.getElementById('scannerStatsTime').textContent = `所要時間: ${data.scan_time_sec}秒`;
-
-    renderScannerResults();
-    updateScannerSelectionUI();
-  } catch (err) {
-    container.innerHTML = '<div class="empty-placeholder" style="color: var(--price-down);">スキャン中にエラーが発生しました</div>';
-  } finally {
-    btn.disabled = false;
-    btn.innerHTML = `
-      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" fill="currentColor"/>
-      </svg>
-      <span>スキャン実行</span>`;
-  }
-}
-
-function renderScannerResults() {
-  const container = document.getElementById('scannerResultsContainer');
-  if (!state.scannerResults || state.scannerResults.length === 0) {
-    container.innerHTML = '<div class="empty-placeholder">条件に一致する特異銘柄は見つかりませんでした</div>';
-    return;
-  }
-
-  container.innerHTML = `
-    <table class="scanner-table">
-      <thead>
-        <tr>
-          <th style="width: 38px;">選択</th>
-          <th>銘柄コード / 名称</th>
-          <th>セクター</th>
-          <th>現在値</th>
-          <th>前日比</th>
-          <th>出来高 / 20日比</th>
-          <th>RSI</th>
-          <th>検知シグナル</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${state.scannerResults
-          .map((hit) => {
-            const isUp = (hit.change_pct || 0) >= 0;
-            const diffClass = isUp ? 'up' : 'down';
-            const diffSign = isUp ? '+' : '';
-            const isSelected = state.selectedScannerSymbols.has(hit.symbol);
-            const isVolHigh = hit.volume_ratio >= 2.0;
-
-            return `
-            <tr class="scanner-row ${isSelected ? 'selected' : ''}" onclick="onScannerRowClick(event, '${hit.symbol}')">
-              <td>
-                <input type="checkbox" ${isSelected ? 'checked' : ''} onclick="toggleScannerSelect(event, '${hit.symbol}')" />
-              </td>
-              <td>
-                <strong style="font-family: var(--font-mono);">${hit.symbol}</strong>
-                <div style="color: var(--text-secondary); font-size: 0.75rem;">${hit.name}</div>
-              </td>
-              <td><span class="badge">${hit.sector || '-'}</span></td>
-              <td style="font-family: var(--font-mono); font-weight: 600;">${formatCurrency(hit.current_price, hit.currency)}</td>
-              <td class="card-diff ${diffClass}">${diffSign}${hit.change_pct.toFixed(2)}%</td>
-              <td>
-                <div style="font-family: var(--font-mono); font-size: 0.78rem;">${Number(hit.volume).toLocaleString()}</div>
-                <span class="vol-ratio-badge ${isVolHigh ? 'vol-ratio-high' : 'vol-ratio-mid'}">
-                  ${hit.volume_ratio}倍
-                </span>
-              </td>
-              <td style="font-family: var(--font-mono);">${hit.rsi || '-'}</td>
-              <td>
-                <div class="tag-list">
-                  ${hit.tags.map((t) => `<span class="badge badge-signal-${t.level}">${t.label}</span>`).join('')}
-                </div>
-              </td>
-            </tr>
-          `;
-          })
-          .join('')}
-      </tbody>
-    </table>
-  `;
-}
-
-function toggleScannerSelect(event, symbol) {
-  event.stopPropagation();
-  if (state.selectedScannerSymbols.has(symbol)) {
-    state.selectedScannerSymbols.delete(symbol);
-  } else {
-    state.selectedScannerSymbols.add(symbol);
-  }
-  updateScannerSelectionUI();
-}
-
-function onScannerRowClick(event, symbol) {
-  // チェックボックス以外の行クリックで背後のチャートを切り替え
-  if (event.target.tagName !== 'INPUT') {
-    selectStock(symbol);
-    showToast(`チャートを ${symbol} に切り替えました`, 'info');
-  }
-}
-
-function updateScannerSelectionUI() {
-  const count = state.selectedScannerSymbols.size;
-  document.getElementById('selectedCount').textContent = count;
-  const btn = document.getElementById('btnBatchAddToWatchlist');
-  btn.disabled = count === 0;
-
-  // テーブルのチェック状態と選択スタイルを同期
-  document.querySelectorAll('.scanner-row').forEach((row) => {
-    const sym = row.querySelector('strong')?.textContent;
-    if (sym) {
-      const isSel = state.selectedScannerSymbols.has(sym);
-      const chk = row.querySelector('input[type="checkbox"]');
-      if (chk) chk.checked = isSel;
-      row.classList.toggle('selected', isSel);
-    }
-  });
-}
-
-// ========================================================
-// ヘルパー関数
-// ========================================================
 function formatCurrency(val, currency = 'JPY') {
   if (val === null || val === undefined || isNaN(val)) return '-';
   if (currency === 'JPY') {

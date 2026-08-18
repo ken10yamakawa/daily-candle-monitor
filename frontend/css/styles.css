@@ -1695,26 +1695,31 @@ body {
 }
 
 .btn-clear-filter {
-  background: transparent;
-  border: none;
-  color: var(--text-muted);
-  font-size: 0.7rem;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #f87171;
+  font-size: 0.72rem;
+  font-weight: 600;
   cursor: pointer;
-  padding: 2px 4px;
+  padding: 3px 8px;
   border-radius: 4px;
   transition: var(--transition);
+  user-select: none;
+  touch-action: manipulation;
 }
 
-.btn-clear-filter:hover {
-  color: var(--price-down);
-  background: rgba(239, 68, 68, 0.1);
+.btn-clear-filter:hover,
+.btn-clear-filter:active {
+  color: #fff;
+  background: var(--price-down);
+  border-color: var(--price-down);
 }
 
 .signal-checkbox-grid {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
-  max-height: 110px;
+  max-height: 120px;
   overflow-y: auto;
   padding-right: 2px;
 }
@@ -1731,14 +1736,15 @@ body {
 .signal-check-chip {
   display: inline-flex;
   align-items: center;
-  padding: 3px 7px;
+  padding: 4px 8px;
   border-radius: 6px;
   background: var(--bg-card);
   border: 1px solid var(--border-color);
-  font-size: 0.68rem;
+  font-size: 0.7rem;
   color: var(--text-secondary);
   cursor: pointer;
   user-select: none;
+  touch-action: manipulation;
   transition: var(--transition);
 }
 
@@ -1752,18 +1758,21 @@ body {
   background: var(--bg-card-hover);
 }
 
-/* チェックされた状態 */
-.signal-check-chip:has(input:checked) {
-  background: rgba(56, 189, 248, 0.18);
-  border-color: var(--accent-blue);
-  color: #38bdf8;
+/* チェックされた状態 (:has(input:checked) および .active 両対応) */
+.signal-check-chip:has(input:checked),
+.signal-check-chip.active {
+  background: rgba(56, 189, 248, 0.18) !important;
+  border-color: var(--accent-blue) !important;
+  color: #38bdf8 !important;
   font-weight: 600;
   box-shadow: 0 0 8px rgba(56, 189, 248, 0.25);
 }
 
-.signal-check-chip.highlight-chip:has(input:checked) {
-  background: rgba(245, 158, 11, 0.2);
-  border-color: var(--badge-gold);
-  color: var(--badge-gold);
+.signal-check-chip.highlight-chip:has(input:checked),
+.signal-check-chip.highlight-chip.active {
+  background: rgba(245, 158, 11, 0.2) !important;
+  border-color: var(--badge-gold) !important;
+  color: var(--badge-gold) !important;
   box-shadow: 0 0 8px rgba(245, 158, 11, 0.25);
 }
+

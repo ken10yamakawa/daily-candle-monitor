@@ -416,7 +416,7 @@ NASDAQ_100 = [
     {"symbol": "SMCI", "name": "Super Micro Computer", "sector": "AI Server Hardware"},
     {"symbol": "APP", "name": "AppLovin Corp", "sector": "AdTech / Software"},
     {"symbol": "TEAM", "name": "Atlassian Corp", "sector": "Software"},
-    {"symbol": "ANSS", "name": "ANSYS Inc", "sector": "Software"},
+    {"symbol": "ARM", "name": "Arm Holdings", "sector": "Semiconductors"},
     {"symbol": "CPRT", "name": "Copart Inc", "sector": "Services"},
     {"symbol": "ODFL", "name": "Old Dominion Freight", "sector": "Logistics"},
     {"symbol": "FANG", "name": "Diamondback Energy", "sector": "Energy"},
