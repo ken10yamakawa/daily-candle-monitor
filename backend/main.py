@@ -73,12 +73,18 @@ class AddRuleRequest(BaseModel):
 
 @app.get("/api/watchlist")
 def get_watchlist(db: Session = Depends(get_db)):
-    """ウォッチリスト銘柄一覧とリアルタイム情報を取得"""
+    """ウォッチリスト銘柄一覧とリアルタイム情報、過去1週間の特異シグナルを取得（バッチ取得で高速化）"""
     items = db.query(WatchlistItem).order_by(WatchlistItem.sort_order.asc(), WatchlistItem.id.asc()).all()
+    if not items:
+        return []
+
+    symbols = [it.symbol for it in items]
+    batch_info = StockService.get_batch_info(symbols)
+
     results = []
     for it in items:
         data = it.to_dict()
-        info = StockService.get_symbol_info(it.symbol)
+        info = batch_info.get(it.symbol, {})
         data.update({
             "current_price": info.get("current_price", 0),
             "prev_close": info.get("prev_close", 0),
@@ -87,6 +93,11 @@ def get_watchlist(db: Session = Depends(get_db)):
             "high": info.get("high", 0),
             "low": info.get("low", 0),
             "volume": info.get("volume", 0),
+            "sma5": info.get("sma5"),
+            "sma25": info.get("sma25"),
+            "rsi": info.get("rsi"),
+            "signals": info.get("signals", []),
+            "weekly_signals": info.get("weekly_signals", []),
             "display_name": it.name or info.get("name", it.symbol)
         })
         results.append(data)
@@ -165,6 +176,67 @@ def batch_add_watchlist(req: BatchAddWatchlistRequest, db: Session = Depends(get
 
     db.commit()
     return {"status": "ok", "added_count": len(added), "added_symbols": added}
+
+
+@app.post("/api/watchlist/add_all_universes")
+def add_all_universes_to_watchlist(db: Session = Depends(get_db)):
+    """全ユニバース（日経225・グロース・高配当・NASDAQ100・S&P500・暗号資産）の全銘柄をウォッチリストに一括追加"""
+    from backend.data.universe import UNIVERSES
+
+    # カテゴリマッピング
+    universe_to_category = {
+        "nikkei225": "日本株",
+        "japan_growth": "日本株",
+        "japan_high_dividend": "日本株",
+        "nasdaq100": "米国株",
+        "sp500_top": "米国株",
+        "crypto_forex": "暗号資産",
+    }
+
+    # 既存シンボルをセットとして事前取得（同一トランザクション内での重複を防ぐ）
+    existing_symbols = {row.symbol for row in db.query(WatchlistItem.symbol).all()}
+
+    added = []
+    skipped = []
+    total = 0
+
+    for universe_id, universe_def in UNIVERSES.items():
+        category = universe_to_category.get(universe_id, "その他")
+        currency = universe_def.get("currency", "USD")
+        for entry in universe_def["items"]:
+            sym = entry["symbol"]
+            total += 1
+            if sym in existing_symbols:
+                skipped.append(sym)
+                continue
+
+            # 為替・コモディティは category 上書き
+            cat = category
+            if "=X" in sym or "=F" in sym:
+                cat = "為替・コモディティ"
+            elif "-USD" in sym or "-JPY" in sym:
+                cat = "暗号資産"
+
+            cur = "JPY" if ".T" in sym or "JPY" in sym else currency
+
+            item = WatchlistItem(
+                symbol=sym,
+                name=entry.get("name", sym),
+                category=cat,
+                currency=cur
+            )
+            db.add(item)
+            existing_symbols.add(sym)  # 追加済みセットを都度更新して二重追加を防止
+            added.append(sym)
+
+    db.commit()
+    return {
+        "status": "ok",
+        "total_universe": total,
+        "added_count": len(added),
+        "skipped_count": len(skipped),
+        "added_symbols": added[:20]  # レスポンスは先頭20件のみ
+    }
 
 
 @app.delete("/api/watchlist/{item_id}")

@@ -17,6 +17,9 @@ const state = {
   countdownInterval: null,
   scannerResults: [],
   selectedScannerSymbols: new Set(),
+  selectedSignals: new Set(), // 特異シグナル複数選択フィルター
+  sortKey: 'default',         // ウォッチリストのソートキー
+  summarySortKey: 'signals_desc', // サマリーテーブルのソートキー
 };
 
 // ========================================================
@@ -109,6 +112,84 @@ function setupEventListeners() {
       state.currentCategory = e.target.dataset.category;
       renderWatchlist();
     });
+  });
+
+  // ウォッチリストのソートセレクト
+  document.getElementById('watchlistSortSelect').addEventListener('change', (e) => {
+    state.sortKey = e.target.value;
+    renderWatchlist();
+  });
+
+  // サマリーテーブルのソートセレクト
+  document.getElementById('summarySortSelect').addEventListener('change', (e) => {
+    state.summarySortKey = e.target.value;
+    renderMarketSummary();
+  });
+
+  // 特異シグナルフィルターチェックボックス
+  const signalCheckboxes = document.querySelectorAll('.signal-filter-cb');
+  signalCheckboxes.forEach((cb) => {
+    cb.addEventListener('change', (e) => {
+      const val = e.target.value;
+      if (e.target.checked) {
+        state.selectedSignals.add(val);
+      } else {
+        state.selectedSignals.delete(val);
+      }
+      updateSignalFilterBadge();
+      renderWatchlist();
+      renderMarketSummary();
+    });
+  });
+
+  // シグナルフィルタークリアボタン
+  document.getElementById('btnClearSignalFilter').addEventListener('click', () => {
+    state.selectedSignals.clear();
+    signalCheckboxes.forEach((cb) => { cb.checked = false; });
+    updateSignalFilterBadge();
+    renderWatchlist();
+    renderMarketSummary();
+    showToast('シグナル絞り込みをクリアしました', 'info');
+  });
+
+  // サマリーテーブルのソータブルヘッダー
+  document.addEventListener('click', (e) => {
+    const th = e.target.closest('.th-sortable');
+    if (!th) return;
+    const sortKey = th.dataset.sort;
+    if (!sortKey) return;
+    state.summarySortKey = sortKey;
+    const sel = document.getElementById('summarySortSelect');
+    if (sel) sel.value = sortKey;
+    // ヘッダー矢印更新
+    document.querySelectorAll('.th-sortable .sort-arrow').forEach((el) => {
+      el.classList.remove('active');
+      el.textContent = '';
+    });
+    const arrow = th.querySelector('.sort-arrow');
+    if (arrow) { arrow.classList.add('active'); arrow.textContent = '↓'; }
+    renderMarketSummary();
+  });
+
+  // 全銘柄一括追加ボタン
+  document.getElementById('btnAddAllUniverses').addEventListener('click', async () => {
+    const btn = document.getElementById('btnAddAllUniverses');
+    if (!confirm('全ユニバース（日経225・グロース・高配当・NASDAQ100・S&P500・暗号資産＋為替）の全銘柄をウォッチリストに追加します。\n既に追加済みの銘柄はスキップされます。\n\n※ 合計約447銘柄が対象です。続けますか？')) return;
+
+    btn.disabled = true;
+    btn.innerHTML = '<span>追加中...</span>';
+    showToast('全銘柄をウォッチリストに追加しています...', 'info');
+    try {
+      const res = await fetch('/api/watchlist/add_all_universes', { method: 'POST' });
+      const data = await res.json();
+      showToast(`✅ ${data.added_count} 銘柄を追加しました（スキップ: ${data.skipped_count}）`, 'success');
+      await loadWatchlist();
+    } catch (err) {
+      showToast('全銘柄追加に失敗しました', 'danger');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg><span>全銘柄追加</span>';
+    }
   });
 
   // 下部タブ切り替え
@@ -327,28 +408,182 @@ async function loadWatchlist() {
   }
 }
 
+// シグナル判定用ルールマッピング（チェックボックスのキーとバックエンドの rule_type を完全紐付け）
+const SIGNAL_RULE_MAP = {
+  golden_cross: ['golden_cross'],
+  dead_cross: ['dead_cross'],
+  volume_surge: ['volume_surge', 'volume_surge_up', 'volume_surge_down'],
+  new_high_20: ['new_high_20', 'price_breakout_high'],
+  new_low_20: ['new_low_20', 'price_breakout_low'],
+  bb_upper_break: ['bb_upper_break', 'bb_upper_touch'],
+  bb_lower_break: ['bb_lower_break', 'bb_lower_touch'],
+  rsi_oversold: ['rsi_oversold'],
+  rsi_overbought: ['rsi_overbought'],
+  rapid_rise: ['rapid_rise', 'price_surge'],
+  rapid_fall: ['rapid_fall', 'price_plunge'],
+  macd_golden_cross: ['macd_golden_cross'],
+  macd_dead_cross: ['macd_dead_cross'],
+};
+
+// ソート関数: watchlist配列を指定キーでソートして返す
+function applySortToList(list, sortKey) {
+  const arr = [...list];
+
+  // 1. 特異シグナル個別指定ソート (例: sig_golden_cross, sig_volume_surge など)
+  if (sortKey.startsWith('sig_')) {
+    const targetKey = sortKey.replace('sig_', '');
+    const validRuleTypes = SIGNAL_RULE_MAP[targetKey] || [targetKey];
+
+    return arr.sort((a, b) => {
+      const sigsA = (a.weekly_signals || []).filter((s) => validRuleTypes.includes(s.rule_type));
+      const sigsB = (b.weekly_signals || []).filter((s) => validRuleTypes.includes(s.rule_type));
+
+      const hasA = sigsA.length > 0;
+      const hasB = sigsB.length > 0;
+
+      if (hasA && !hasB) return -1;
+      if (!hasA && hasB) return 1;
+      if (hasA && hasB) {
+        // 最も最近発生した日付（days_ago が小さい方）を優先
+        const minDaysA = Math.min(...sigsA.map((s) => s.days_ago ?? 99));
+        const minDaysB = Math.min(...sigsB.map((s) => s.days_ago ?? 99));
+        if (minDaysA !== minDaysB) return minDaysA - minDaysB;
+        // 同日なら全シグナル数が多い方
+        return (b.weekly_signals?.length || 0) - (a.weekly_signals?.length || 0);
+      }
+      return 0;
+    });
+  }
+
+  // 2. 本日シグナル発生順
+  if (sortKey === 'signals_today') {
+    return arr.sort((a, b) => {
+      const todayCountA = (a.weekly_signals || []).filter((s) => s.days_ago === 0).length;
+      const todayCountB = (b.weekly_signals || []).filter((s) => s.days_ago === 0).length;
+      if (todayCountA !== todayCountB) return todayCountB - todayCountA;
+      return (b.weekly_signals?.length || 0) - (a.weekly_signals?.length || 0);
+    });
+  }
+
+  // 3. 一般的な指標・価格順
+  switch (sortKey) {
+    case 'signals_desc':
+      return arr.sort((a, b) => (b.weekly_signals?.length || 0) - (a.weekly_signals?.length || 0));
+    case 'change_desc':
+      return arr.sort((a, b) => (b.change_pct || 0) - (a.change_pct || 0));
+    case 'change_asc':
+      return arr.sort((a, b) => (a.change_pct || 0) - (b.change_pct || 0));
+    case 'rsi_desc':
+      return arr.sort((a, b) => (b.rsi || 0) - (a.rsi || 0));
+    case 'rsi_asc':
+      return arr.sort((a, b) => {
+        const ar = a.rsi ?? 999, br = b.rsi ?? 999;
+        return ar - br;
+      });
+    default:
+      return arr; // 登録順（DB順）
+  }
+}
+
+// 特異シグナル絞り込みバッジ更新
+function updateSignalFilterBadge() {
+  const badge = document.getElementById('signalFilterCount');
+  if (badge) {
+    if (state.selectedSignals.size > 0) {
+      badge.textContent = `${state.selectedSignals.size}件選択`;
+      badge.style.display = 'inline-block';
+    } else {
+      badge.style.display = 'none';
+    }
+  }
+}
+
+// 選択された特異シグナルでフィルタリングする関数
+function filterBySelectedSignals(list) {
+  if (state.selectedSignals.size === 0) return list;
+
+  const requiresToday = state.selectedSignals.has('today_only');
+  const selectedRuleKeys = Array.from(state.selectedSignals).filter((r) => r !== 'today_only');
+
+  // 選択されたキーに対応する全有効 rule_type をフラット化
+  const targetRuleTypes = selectedRuleKeys.flatMap((key) => SIGNAL_RULE_MAP[key] || [key]);
+
+  return list.filter((item) => {
+    const weeklySignals = item.weekly_signals || [];
+    if (weeklySignals.length === 0) return false;
+
+    // 「本日発生のみ」がチェックされている場合
+    if (requiresToday) {
+      const hasToday = weeklySignals.some((s) => s.days_ago === 0);
+      if (!hasToday) return false;
+    }
+
+    // シグナル種別が選択されている場合 (ORマッチ)
+    if (targetRuleTypes.length > 0) {
+      const hasMatchingSignal = weeklySignals.some((s) => targetRuleTypes.includes(s.rule_type));
+      if (!hasMatchingSignal) return false;
+    }
+
+    return true;
+  });
+}
+
 function renderWatchlist() {
   const container = document.getElementById('watchlistContainer');
   const countEl = document.getElementById('watchlistCount');
 
-  const filtered = state.watchlist.filter((item) => {
+  // 1. カテゴリフィルター
+  const catFiltered = state.watchlist.filter((item) => {
     if (state.currentCategory === 'ALL') return true;
     return item.category === state.currentCategory;
   });
 
-  countEl.textContent = `${filtered.length} 銘柄`;
+  // 2. 特異シグナルチェックボックスフィルター
+  const signalFiltered = filterBySelectedSignals(catFiltered);
 
-  if (filtered.length === 0) {
-    container.innerHTML = '<div class="empty-placeholder">対象の銘柄がありません</div>';
+  // 3. ソート適用
+  const sorted = applySortToList(signalFiltered, state.sortKey);
+
+  countEl.textContent = `${sorted.length} 銘柄`;
+
+  if (sorted.length === 0) {
+    container.innerHTML = '<div class="empty-placeholder">選択されたシグナル条件に一致する銘柄はありません</div>';
     return;
   }
 
-  container.innerHTML = filtered
+  container.innerHTML = sorted
     .map((item) => {
       const isUp = (item.change || 0) >= 0;
       const diffClass = isUp ? 'up' : 'down';
       const diffSign = isUp ? '+' : '';
       const activeClass = item.symbol === state.currentSymbol ? 'active' : '';
+
+      // 直近1週間のシグナルバッジ生成 (最大2個表示)
+      const weeklySignals = item.weekly_signals || [];
+      let signalsHtml = '';
+      if (weeklySignals.length > 0) {
+        const displaySignals = weeklySignals.slice(0, 2);
+        const remainingCount = weeklySignals.length - displaySignals.length;
+
+        signalsHtml = `
+          <div class="card-signals-row">
+            ${displaySignals
+              .map((s) => {
+                const isToday = s.days_ago === 0;
+                const badgeClass = isToday ? 'today' : 'past';
+                const levelClass = `level-${s.level || 'info'}`;
+                const text = s.badge_text || s.title || '';
+                return `
+                  <span class="card-signal-badge ${badgeClass} ${levelClass}" title="${s.candle_date} (${s.relative_label}): ${s.message || ''}">
+                    <strong>[${s.relative_label}]</strong> ${text}
+                  </span>
+                `;
+              })
+              .join('')}
+            ${remainingCount > 0 ? `<span class="card-signals-more">+${remainingCount}</span>` : ''}
+          </div>
+        `;
+      }
 
       return `
       <div class="watchlist-card ${activeClass}" onclick="selectStock('${item.symbol}')">
@@ -364,6 +599,7 @@ function renderWatchlist() {
             </div>
           </div>
         </div>
+        ${signalsHtml}
         <button class="card-delete-btn" onclick="deleteStock(event, ${item.id}, '${item.symbol}')" title="削除">
           &times;
         </button>
@@ -448,14 +684,42 @@ function updateStockHeader(data) {
   document.getElementById('statRsi').textContent = latest.rsi14 ? `${latest.rsi14}` : '-';
   document.getElementById('statVolume').textContent = info.volume ? Number(info.volume).toLocaleString() : '-';
 
-  // リアルタイムシグナルバッジ更新
+  // リアルタイム点灯シグナルバッジ更新
   const banner = document.getElementById('activeSignalsBanner');
   if (indicators?.signals && indicators.signals.length > 0) {
     banner.innerHTML = indicators.signals
       .map((s) => `<span class="badge badge-signal-${s.level}">${s.title}</span>`)
       .join('');
   } else {
-    banner.innerHTML = '<span class="badge">点灯シグナルなし</span>';
+    banner.innerHTML = '<span class="badge">本日の特異点灯なし</span>';
+  }
+
+  // 直近1週間の特異シグナル履歴タイムライン描画
+  const timelineEl = document.getElementById('weeklySignalsTimeline');
+  const countEl = document.getElementById('weeklySignalsCount');
+  const weeklySignals = indicators?.weekly_signals || info?.weekly_signals || [];
+
+  countEl.textContent = `${weeklySignals.length} 件検知 (過去7日間)`;
+
+  if (weeklySignals.length === 0) {
+    timelineEl.innerHTML = '<div class="timeline-empty">直近1週間に検知された特異シグナルはありません</div>';
+  } else {
+    timelineEl.innerHTML = weeklySignals
+      .map((sig) => {
+        const isToday = sig.days_ago === 0;
+        const daysClass = isToday ? 'today' : '';
+        const levelClass = `level-${sig.level || 'info'}`;
+        const titleText = sig.title || sig.badge_text || '';
+        const msg = sig.message || '';
+
+        return `
+          <div class="timeline-chip ${levelClass}" title="確定日: ${sig.candle_date} | ${msg}">
+            <span class="timeline-days-badge ${daysClass}">${sig.relative_label} (${sig.candle_date.slice(5)})</span>
+            <span class="timeline-signal-text">${sig.badge_text || titleText}</span>
+          </div>
+        `;
+      })
+      .join('');
   }
 }
 
@@ -601,32 +865,71 @@ async function deleteRule(id) {
 function renderMarketSummary() {
   const tbody = document.getElementById('marketSummaryBody');
   if (!state.watchlist || state.watchlist.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="9" class="empty-placeholder">データがありません</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="5" class="empty-placeholder">データがありません</td></tr>';
     return;
   }
 
-  tbody.innerHTML = state.watchlist
+  // 1. 特異シグナルチェックボックスフィルター
+  const signalFiltered = filterBySelectedSignals(state.watchlist);
+
+  // 2. ソート適用
+  const sorted = applySortToList(signalFiltered, state.summarySortKey);
+
+  if (sorted.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" class="empty-placeholder">選択されたシグナル条件に一致する銘柄はありません</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = sorted
     .map((item) => {
       const isUp = (item.change || 0) >= 0;
       const diffClass = isUp ? 'up' : 'down';
       const diffSign = isUp ? '+' : '';
 
+      const weeklySignals = item.weekly_signals || [];
+      let signalsHtml = '<span style="color: var(--text-muted); font-size: 0.75rem;">なし</span>';
+      if (weeklySignals.length > 0) {
+        signalsHtml = `
+          <div class="summary-signals-cell">
+            ${weeklySignals
+              .slice(0, 4)
+              .map((s) => {
+                const isToday = s.days_ago === 0;
+                const badgeClass = isToday ? 'today' : 'past';
+                const levelClass = `level-${s.level || 'info'}`;
+                return `
+                  <span class="card-signal-badge ${badgeClass} ${levelClass}" title="${s.candle_date}: ${s.message || ''}">
+                    <strong>[${s.relative_label}]</strong> ${s.badge_text || s.title}
+                  </span>
+                `;
+              })
+              .join('')}
+            ${weeklySignals.length > 4 ? `<span class="card-signals-more">+${weeklySignals.length - 4}</span>` : ''}
+          </div>
+        `;
+      }
+
       return `
       <tr style="cursor: pointer;" onclick="selectStock('${item.symbol}')">
-        <td><strong>${item.symbol}</strong> <span style="color: var(--text-secondary); font-size: 0.75rem;">${item.display_name}</span></td>
+        <td>
+          <strong style="font-family: var(--font-mono);">${item.symbol}</strong>
+          <div style="color: var(--text-secondary); font-size: 0.72rem; margin-top: 1px;">${item.display_name}</div>
+        </td>
         <td><span class="badge">${item.category}</span></td>
-        <td style="font-family: var(--font-mono); font-weight: 600;">${formatCurrency(item.current_price, item.currency)}</td>
-        <td class="card-diff ${diffClass}">${diffSign}${(item.change_pct || 0).toFixed(2)}%</td>
-        <td>-</td>
-        <td>-</td>
-        <td>-</td>
-        <td>-</td>
-        <td><span class="badge badge-subtle">監視中</span></td>
+        <td>
+          <div class="summary-price-cell">
+            <span class="summary-price-val">${formatCurrency(item.current_price, item.currency)}</span>
+            <span class="summary-price-diff card-diff ${diffClass}">${diffSign}${(item.change_pct || 0).toFixed(2)}%</span>
+          </div>
+        </td>
+        <td style="font-family: var(--font-mono); font-size: 0.85rem;">${item.rsi ? item.rsi : '-'}</td>
+        <td>${signalsHtml}</td>
       </tr>
     `;
     })
     .join('');
 }
+
 
 function updateRuleSymbolOptions() {
   const select = document.getElementById('ruleTargetSymbol');

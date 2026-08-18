@@ -84,15 +84,115 @@
       <div class="sidebar-header">
         <div class="sidebar-title-row">
           <h2 class="sidebar-title">監視ウォッチリスト</h2>
-          <span class="watchlist-count" id="watchlistCount">10 銘柄</span>
+          <span class="watchlist-count" id="watchlistCount">0 銘柄</span>
         </div>
+
+        <!-- 全銘柄追加 + ソートコントロール行 -->
+        <div class="sidebar-controls-row">
+          <button class="btn btn-accent btn-sm btn-icon" id="btnAddAllUniverses" title="全ユニバースの銘柄を一括追加">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
+            <span>全銘柄追加</span>
+          </button>
+          <div class="sort-control">
+            <span class="sort-label">並び替え:</span>
+            <select id="watchlistSortSelect" class="sort-select">
+              <option value="default">登録順 (デフォルト)</option>
+              <optgroup label="── 特異シグナル別 ──">
+                <option value="signals_desc">📊 全シグナル数 ↓</option>
+                <option value="signals_today">⚡ 本日シグナル発生銘柄</option>
+                <option value="sig_golden_cross">✨ ゴールデンクロス (5x25)</option>
+                <option value="sig_dead_cross">💀 デッドクロス (5x25)</option>
+                <option value="sig_volume_surge">🔥 出来高急増 (1.8倍~)</option>
+                <option value="sig_new_high_20">🚀 20日新高値更新</option>
+                <option value="sig_new_low_20">⚠️ 20日新安値更新</option>
+                <option value="sig_bb_upper_break">🌊 BB +2σ突破</option>
+                <option value="sig_bb_lower_break">🛡️ BB -2σ割れ</option>
+                <option value="sig_rsi_oversold">💎 RSI底値圏 (30以下)</option>
+                <option value="sig_rsi_overbought">🔥 RSI買われすぎ (70以上)</option>
+                <option value="sig_rapid_rise">🚀 急騰 (+4%以上)</option>
+                <option value="sig_rapid_fall">📉 急落 (-4%以下)</option>
+              </optgroup>
+              <optgroup label="── 価格・テクニカル ──">
+                <option value="change_desc">📈 上昇率 ↓</option>
+                <option value="change_asc">📉 下落率 ↓</option>
+                <option value="rsi_desc">RSI 高 ↓ (過熱)</option>
+                <option value="rsi_asc">RSI 低 ↓ (底値)</option>
+              </optgroup>
+            </select>
+          </div>
+        </div>
+
         <!-- カテゴリフィルター -->
         <div class="category-tabs" id="categoryTabs">
           <button class="cat-tab active" data-category="ALL">すべて</button>
           <button class="cat-tab" data-category="日本株">日本株</button>
           <button class="cat-tab" data-category="米国株">米国株</button>
           <button class="cat-tab" data-category="暗号資産">暗号資産</button>
-          <button class="cat-tab" data-category="為替">為替</button>
+          <button class="cat-tab" data-category="為替・コモディティ">為替</button>
+        </div>
+
+        <!-- 特異シグナル複数選択チェックボックスエリア -->
+        <div class="signal-filter-section" id="signalFilterSection">
+          <div class="signal-filter-header">
+            <div class="signal-filter-title">
+              <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px;">
+                <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
+              </svg>
+              <span>シグナルで絞り込み</span>
+              <span class="filter-count-badge" id="signalFilterCount" style="display: none;">0</span>
+            </div>
+            <button class="btn-clear-filter" id="btnClearSignalFilter" title="シグナル選択を解除">クリア</button>
+          </div>
+          <div class="signal-checkbox-grid" id="signalCheckboxGrid">
+            <label class="signal-check-chip" title="5日線が25日線を上抜け">
+              <input type="checkbox" value="golden_cross" class="signal-filter-cb" />
+              <span class="chip-text">✨ GC (5x25)</span>
+            </label>
+            <label class="signal-check-chip" title="5日線が25日線を下抜け">
+              <input type="checkbox" value="dead_cross" class="signal-filter-cb" />
+              <span class="chip-text">💀 DC (5x25)</span>
+            </label>
+            <label class="signal-check-chip" title="20日平均比1.8倍以上の出来高">
+              <input type="checkbox" value="volume_surge" class="signal-filter-cb" />
+              <span class="chip-text">🔥 出来高急増</span>
+            </label>
+            <label class="signal-check-chip" title="過去20日の最高値を上抜け">
+              <input type="checkbox" value="new_high_20" class="signal-filter-cb" />
+              <span class="chip-text">🚀 20日新高値</span>
+            </label>
+            <label class="signal-check-chip" title="過去20日の最安値を下抜け">
+              <input type="checkbox" value="new_low_20" class="signal-filter-cb" />
+              <span class="chip-text">⚠️ 20日新安値</span>
+            </label>
+            <label class="signal-check-chip" title="ボリンジャーバンド+2σを上抜け">
+              <input type="checkbox" value="bb_upper_break" class="signal-filter-cb" />
+              <span class="chip-text">🌊 BB +2σ突破</span>
+            </label>
+            <label class="signal-check-chip" title="ボリンジャーバンド-2σを下抜け">
+              <input type="checkbox" value="bb_lower_break" class="signal-filter-cb" />
+              <span class="chip-text">🛡️ BB -2σ割れ</span>
+            </label>
+            <label class="signal-check-chip" title="RSIが30以下の底値圏">
+              <input type="checkbox" value="rsi_oversold" class="signal-filter-cb" />
+              <span class="chip-text">💎 RSI底値(≤30)</span>
+            </label>
+            <label class="signal-check-chip" title="RSIが70以上の過熱圏">
+              <input type="checkbox" value="rsi_overbought" class="signal-filter-cb" />
+              <span class="chip-text">🔥 RSI過熱(≥70)</span>
+            </label>
+            <label class="signal-check-chip" title="前日比+4%以上の急上昇">
+              <input type="checkbox" value="rapid_rise" class="signal-filter-cb" />
+              <span class="chip-text">🚀 急騰(+4%~)</span>
+            </label>
+            <label class="signal-check-chip" title="前日比-4%以上の急落">
+              <input type="checkbox" value="rapid_fall" class="signal-filter-cb" />
+              <span class="chip-text">📉 急落(-4%~)</span>
+            </label>
+            <label class="signal-check-chip highlight-chip" title="本日の日足で発生したシグナルのみ">
+              <input type="checkbox" value="today_only" class="signal-filter-cb" />
+              <span class="chip-text">⚡ 本日発生のみ</span>
+            </label>
+          </div>
         </div>
       </div>
 
@@ -148,6 +248,20 @@
               <span class="stat-val" id="statVolume">-</span>
             </div>
           </div>
+        </div>
+      </div>
+
+      <!-- 直近1週間の特異シグナル履歴タイムライン -->
+      <div class="weekly-signals-card" id="weeklySignalsCard">
+        <div class="weekly-signals-header">
+          <div class="weekly-signals-title">
+            <span class="weekly-dot"></span>
+            <span>直近1週間の特異シグナル履歴</span>
+          </div>
+          <span class="weekly-signals-count" id="weeklySignalsCount">0 件検知</span>
+        </div>
+        <div class="weekly-signals-timeline" id="weeklySignalsTimeline">
+          <!-- 過去1週間のシグナルバッジ・タイムライン要素 -->
         </div>
       </div>
 
@@ -241,18 +355,45 @@
         </div>
 
         <div class="panel-tab-content" id="tabMarketSummary">
+          <div class="summary-toolbar">
+            <span class="panel-note">※ ウォッチリスト全銘柄のテクニカルサマリー</span>
+            <div class="sort-control">
+              <span class="sort-label">並び替え:</span>
+              <select id="summarySortSelect" class="sort-select">
+                <option value="default">登録順 (デフォルト)</option>
+                <optgroup label="── 特異シグナル別 ──">
+                  <option value="signals_desc">📊 全シグナル数 ↓</option>
+                  <option value="signals_today">⚡ 本日シグナル発生銘柄</option>
+                  <option value="sig_golden_cross">✨ ゴールデンクロス (5x25)</option>
+                  <option value="sig_dead_cross">💀 デッドクロス (5x25)</option>
+                  <option value="sig_volume_surge">🔥 出来高急増 (1.8倍~)</option>
+                  <option value="sig_new_high_20">🚀 20日新高値更新</option>
+                  <option value="sig_new_low_20">⚠️ 20日新安値更新</option>
+                  <option value="sig_bb_upper_break">🌊 BB +2σ突破</option>
+                  <option value="sig_bb_lower_break">🛡️ BB -2σ割れ</option>
+                  <option value="sig_rsi_oversold">💎 RSI底値圏 (30以下)</option>
+                  <option value="sig_rsi_overbought">🔥 RSI買われすぎ (70以上)</option>
+                  <option value="sig_rapid_rise">🚀 急騰 (+4%以上)</option>
+                  <option value="sig_rapid_fall">📉 急落 (-4%以下)</option>
+                </optgroup>
+                <optgroup label="── 価格・テクニカル ──">
+                  <option value="change_desc">📈 上昇率 ↓</option>
+                  <option value="change_asc">📉 下落率 ↓</option>
+                  <option value="rsi_desc">RSI 高 ↓</option>
+                  <option value="rsi_asc">RSI 低 ↓</option>
+                </optgroup>
+              </select>
+            </div>
+          </div>
           <div class="table-responsive">
             <table class="market-summary-table" id="marketSummaryTable">
               <thead>
                 <tr>
-                  <th>銘柄</th>
+                  <th class="th-sortable" data-sort="default">銘柄 <span class="sort-arrow"></span></th>
                   <th>カテゴリ</th>
-                  <th>現在値</th>
-                  <th>前日比</th>
-                  <th>5日線</th>
-                  <th>25日線</th>
-                  <th>RSI</th>
-                  <th>シグナル</th>
+                  <th class="th-sortable" data-sort="change_desc">現在値 / 前日比 <span class="sort-arrow"></span></th>
+                  <th class="th-sortable" data-sort="rsi_desc">RSI <span class="sort-arrow"></span></th>
+                  <th class="th-sortable th-signals" data-sort="signals_desc">直近1週間のシグナル <span class="sort-arrow active">↓</span></th>
                 </tr>
               </thead>
               <tbody id="marketSummaryBody">
@@ -301,13 +442,13 @@
     </button>
   </nav>
 
-  <!-- モーダル: 市場スキャナー (日経225 / NASDAQ100) -->
+  <!-- モーダル: 市場スキャナー (拡大ユニバース対応) -->
   <div class="modal-overlay" id="scannerModal">
     <div class="modal-card modal-card-lg">
       <div class="modal-header">
         <div class="modal-title-group">
           <h3 class="modal-title">⚡ 市場スキャナー</h3>
-          <p class="modal-subtitle">出来高急増・新高値・ゴールデンクロス等の特徴的銘柄を抽出</p>
+          <p class="modal-subtitle">日本株全225銘柄・グロース新興・米主要株・暗号資産の特異シグナルを一括抽出</p>
         </div>
         <button class="modal-close" id="closeScannerModal">&times;</button>
       </div>
@@ -317,9 +458,12 @@
         <div class="scanner-ctrl-group">
           <label for="scannerUniverseSelect">対象市場</label>
           <select id="scannerUniverseSelect">
-            <option value="nikkei225" selected>日経225 (日本株主要86銘柄)</option>
+            <option value="nikkei225" selected>日経225 (日本株主要全225銘柄)</option>
+            <option value="japan_growth">東証グロース・新興注目株 (AI・宇宙・バイオ等)</option>
+            <option value="japan_high_dividend">日本株 高配当・大型バリュー (商社・銀行等)</option>
             <option value="nasdaq100">NASDAQ 100 (米国成長・主要ハイテク)</option>
-            <option value="crypto_forex">主要暗号資産 & 為替・コモディティ</option>
+            <option value="sp500_top">S&P 500 大型主要株 (バリュー・金融・消費)</option>
+            <option value="crypto_forex">主要暗号資産 & 為替・コモディティ (ゴールド・原油)</option>
           </select>
         </div>
 
@@ -327,8 +471,8 @@
           <label for="scannerVolumeFilter">最小出来高</label>
           <select id="scannerVolumeFilter">
             <option value="0">制限なし</option>
-            <option value="100000">10万株以上</option>
-            <option value="500000" selected>50万株以上 (推奨)</option>
+            <option value="50000">5万株以上</option>
+            <option value="200000" selected>20万株以上 (推奨)</option>
             <option value="1000000">100万株以上 (高流動性)</option>
           </select>
         </div>
@@ -336,13 +480,16 @@
         <div class="scanner-ctrl-group">
           <label for="scannerSignalFilter">シグナル種別</label>
           <select id="scannerSignalFilter">
-            <option value="ALL" selected>すべての特異シグナル</option>
-            <option value="volume_surge">🚀 出来高急増 (1.5倍〜)</option>
-            <option value="breakout_high">🎯 直近20日 新高値</option>
-            <option value="golden_cross">✨ ゴールデンクロス</option>
-            <option value="big_move">🔥 急騰・急落 (±4%)</option>
-            <option value="bb_breakout">🌊 ボリンジャー +2σ</option>
-            <option value="rsi_extreme">⚡ RSI 極値</option>
+            <option value="ALL" selected>すべての特異シグナル (過去1週間〜)</option>
+            <option value="volume_surge">🚀 出来高急増 (1.8倍〜)</option>
+            <option value="breakout_high">🎯 直近20日 新高値ブレイク</option>
+            <option value="golden_cross">✨ ゴールデンクロス (5x25)</option>
+            <option value="macd_golden_cross">🎯 MACD ゴールデンクロス</option>
+            <option value="price_surge">🔥 急騰 (+3.5%〜)</option>
+            <option value="price_plunge">🩸 急落 (-3.5%〜)</option>
+            <option value="bb_upper_touch">🌊 ボリンジャー +2σ 突破</option>
+            <option value="rsi_oversold">💎 RSI 底値 (30以下)</option>
+            <option value="rsi_overbought">⚡ RSI 過熱 (70以上)</option>
           </select>
         </div>
 

@@ -27,20 +27,17 @@ class MonitorService:
             items = db.query(WatchlistItem).filter(WatchlistItem.is_active == True).all()
             rules = db.query(AlertRule).filter(AlertRule.is_enabled == True).all()
 
+            symbols = [it.symbol for it in items]
+            # バッチ一括高速取得
+            batch_info = StockService.get_batch_info(symbols)
+
             results = []
             today_str = datetime.date.today().strftime("%Y-%m-%d")
 
             for item in items:
                 try:
-                    # データ取得
-                    df = StockService.get_daily_data(item.symbol, period="6mo", use_cache=not force)
-                    if df.empty:
-                        continue
-
-                    # 指標計算とシグナル判定
-                    analysis = IndicatorService.calculate_all(df)
-                    signals = analysis.get("signals", [])
-                    info = StockService.get_symbol_info(item.symbol)
+                    info = batch_info.get(item.symbol, {})
+                    signals = info.get("signals", [])
 
                     # 該当するアラートルールとの照合
                     applicable_rules = [r for r in rules if r.symbol in ("ALL", item.symbol)]
