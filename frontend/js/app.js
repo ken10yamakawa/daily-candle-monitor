@@ -24,13 +24,13 @@ const state = {
 // 初期化
 // ========================================================
 document.addEventListener('DOMContentLoaded', async () => {
-  // チャート初期化
-  state.chartManager = new StockChartManager('candleChartContainer', 'rsiChartContainer');
-
+  // チャート初期化を遅延ロード（軽量な初期化のみ）
+  // 実際のチャート描画が必要な時に初期化する
+  
   // イベントリスナー設定
   setupEventListeners();
 
-  // 初期データ読み込み
+  // 初期データ読み込み（チャートは遅延ロード）
   await loadWatchlist();
   await loadRules();
   await loadAlerts();
@@ -38,6 +38,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   // 自動監視タイマー開始
   startMonitoringTimer();
 });
+
+// チャートマネージャーの遅延初期化
+function ensureChartManager() {
+  if (!state.chartManager) {
+    state.chartManager = new StockChartManager('candleChartContainer', 'rsiChartContainer');
+  }
+  return state.chartManager;
+}
 
 // ========================================================
 // イベントリスナー設定
@@ -57,7 +65,7 @@ function setupEventListeners() {
       if (targetNav === 'chart') {
         sidebar.classList.remove('active-mobile');
         mainChart.classList.add('active-mobile');
-        setTimeout(() => state.chartManager.resize(), 100);
+        setTimeout(() => ensureChartManager().resize(), 100);
       } else if (targetNav === 'watchlist') {
         mainChart.classList.remove('active-mobile');
         sidebar.classList.add('active-mobile');
@@ -87,16 +95,16 @@ function setupEventListeners() {
 
   // インジケータトグル
   document.getElementById('toggleSMA').addEventListener('change', (e) => {
-    state.chartManager.toggleSMA(e.target.checked);
+    ensureChartManager().toggleSMA(e.target.checked);
   });
   document.getElementById('toggleBB').addEventListener('change', (e) => {
-    state.chartManager.toggleBB(e.target.checked);
+    ensureChartManager().toggleBB(e.target.checked);
   });
   document.getElementById('toggleVolume').addEventListener('change', (e) => {
-    state.chartManager.toggleVolume(e.target.checked);
+    ensureChartManager().toggleVolume(e.target.checked);
   });
   document.getElementById('toggleRSI').addEventListener('change', (e) => {
-    state.chartManager.toggleRSI(e.target.checked);
+    ensureChartManager().toggleRSI(e.target.checked);
   });
 
   // カテゴリフィルター
@@ -352,7 +360,9 @@ async function handleBatchAddAll() {
 
 async function loadWatchlist() {
   try {
-    const res = await fetch('/api/watchlist');
+    // 軽量版ウォッチリストを取得（初期表示高速化）
+    // full=false でシグナル・指標計算をスキップ
+    const res = await fetch('/api/watchlist?full=false');
     state.watchlist = await res.json();
     renderWatchlist();
     renderMarketSummary();
@@ -363,10 +373,42 @@ async function loadWatchlist() {
       if (!exists) {
         state.currentSymbol = state.watchlist[0].symbol;
       }
+      // チャート表示時に完全な指標を取得（遅延ロード）
       await loadChartData(state.currentSymbol, state.currentPeriod);
     }
+
+    // バックグラウンドで完全版を取得して更新（シグナル表示用）
+    loadFullWatchlistAsync();
   } catch (err) {
     console.error('Error loading watchlist:', err);
+  }
+}
+
+// バックグラウンドで完全版ウォッチリストを非同期取得
+async function loadFullWatchlistAsync() {
+  try {
+    const res = await fetch('/api/watchlist?full=true');
+    const fullWatchlist = await res.json();
+    
+    // 既存の軽量版にシグナル情報をマージ
+    for (const item of fullWatchlist) {
+      const existing = state.watchlist.find((w) => w.symbol === item.symbol);
+      if (existing) {
+        existing.signals = item.signals;
+        existing.weekly_signals = item.weekly_signals;
+        existing.sma5 = item.sma5;
+        existing.sma25 = item.sma25;
+        existing.rsi = item.rsi;
+        existing.high = item.high;
+        existing.low = item.low;
+      }
+    }
+    
+    // UI を再レンダリング
+    renderWatchlist();
+    renderMarketSummary();
+  } catch (err) {
+    console.error('Error loading full watchlist:', err);
   }
 }
 
@@ -605,6 +647,9 @@ async function deleteStock(event, id, symbol) {
 
 async function loadChartData(symbol, period) {
   try {
+    // チャートマネージャーの遅延初期化
+    const chartManager = ensureChartManager();
+    
     const res = await fetch(`/api/stock/${symbol}/chart?period=${period}`);
     if (!res.ok) throw new Error('データ取得に失敗しました');
     const data = await res.json();
@@ -613,7 +658,7 @@ async function loadChartData(symbol, period) {
     updateStockHeader(data);
 
     // チャート描画
-    state.chartManager.renderData(data);
+    chartManager.renderData(data);
   } catch (err) {
     console.error(`Error loading chart for ${symbol}:`, err);
     showToast(`銘柄 ${symbol} のデータ取得に失敗しました`, 'danger');

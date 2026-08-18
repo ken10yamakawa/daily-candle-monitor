@@ -72,34 +72,47 @@ class AddRuleRequest(BaseModel):
 # === API エンドポイント ===
 
 @app.get("/api/watchlist")
-def get_watchlist(db: Session = Depends(get_db)):
-    """ウォッチリスト銘柄一覧とリアルタイム情報、過去1週間の特異シグナルを取得（バッチ取得で高速化）"""
+def get_watchlist(db: Session = Depends(get_db), full: bool = Query(False)):
+    """ウォッチリスト銘柄一覧とリアルタイム情報を取得
+    
+    Args:
+        full: True で全指標を含む、False（デフォルト）で軽量版
+    """
     items = db.query(WatchlistItem).order_by(WatchlistItem.sort_order.asc(), WatchlistItem.id.asc()).all()
     if not items:
         return []
 
     symbols = [it.symbol for it in items]
-    batch_info = StockService.get_batch_info(symbols)
+    # 軽量版ではシグナル計算をスキップ
+    batch_info = StockService.get_batch_info(symbols, include_signals=full)
 
     results = []
     for it in items:
         data = it.to_dict()
         info = batch_info.get(it.symbol, {})
+        
+        # 常に含めるフィールド
         data.update({
             "current_price": info.get("current_price", 0),
             "prev_close": info.get("prev_close", 0),
             "change": info.get("change", 0),
             "change_pct": info.get("change_pct", 0),
-            "high": info.get("high", 0),
-            "low": info.get("low", 0),
             "volume": info.get("volume", 0),
-            "sma5": info.get("sma5"),
-            "sma25": info.get("sma25"),
-            "rsi": info.get("rsi"),
-            "signals": info.get("signals", []),
-            "weekly_signals": info.get("weekly_signals", []),
             "display_name": it.name or info.get("name", it.symbol)
         })
+        
+        # full=True の場合のみ指標を含める
+        if full:
+            data.update({
+                "high": info.get("high", 0),
+                "low": info.get("low", 0),
+                "sma5": info.get("sma5"),
+                "sma25": info.get("sma25"),
+                "rsi": info.get("rsi"),
+                "signals": info.get("signals", []),
+                "weekly_signals": info.get("weekly_signals", []),
+            })
+        
         results.append(data)
     return results
 

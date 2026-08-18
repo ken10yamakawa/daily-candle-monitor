@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 # メモリ内キャッシュ: { symbol: { "data": df, "timestamp": float, "info": dict } }
 _CACHE: Dict[str, Dict[str, Any]] = {}
-CACHE_TTL_SECONDS = 300  # 5分間キャッシュ
+CACHE_TTL_SECONDS = 1800  # 30分間キャッシュ（市場外の時間も含める）
 
 
 class StockService:
@@ -128,8 +128,13 @@ class StockService:
             }
 
     @staticmethod
-    def get_batch_info(symbols: List[str]) -> Dict[str, Dict[str, Any]]:
-        """複数銘柄のメタデータ・シグナル・指標を一括高速取得（バッチ処理）"""
+    def get_batch_info(symbols: List[str], include_signals: bool = True) -> Dict[str, Dict[str, Any]]:
+        """複数銘柄のメタデータ・シグナル・指標を一括高速取得（バッチ処理）
+        
+        Args:
+            symbols: 銘柄シンボルリスト
+            include_signals: True でシグナル・テクニカル指標を含める、False で基本情報のみ
+        """
         now = time.time()
         results: Dict[str, Dict[str, Any]] = {}
         missing_symbols: List[str] = []
@@ -203,7 +208,8 @@ class StockService:
                         sma25_val = None
                         rsi_val = None
 
-                        if len(df_sym) >= 5:
+                        # include_signals=True の場合のみ指標を計算
+                        if include_signals and len(df_sym) >= 5:
                             analysis = IndicatorService.calculate_all(df_sym, lookback_days=7)
                             weekly_signals = analysis.get("weekly_signals", [])
                             latest_signals = analysis.get("signals", [])
