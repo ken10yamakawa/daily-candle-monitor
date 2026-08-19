@@ -60,6 +60,7 @@ class StockChartManager {
         borderColor: '#1e293b',
         timeVisible: false,
         secondsVisible: false,
+        rightOffset: 6,
       },
     };
 
@@ -178,6 +179,9 @@ class StockChartManager {
         width: this.mainContainer.clientWidth,
         height: this.mainContainer.clientHeight || 360,
       });
+      if (this.lastSignals && this.lastCandles) {
+        this.renderSignalLabels(this.lastSignals, this.lastCandles);
+      }
     }
     if (this.rsiChart && this.rsiContainer) {
       this.rsiChart.applyOptions({
@@ -238,9 +242,13 @@ class StockChartManager {
       this.rsiRefLines.oversold.setData(ref30);
     }
 
-    // 6. シグナルマーカー設定
-    if (indicators && indicators.signals) {
-      this.applyMarkers(indicators.signals, candles);
+    // 6. 過去1週間のシグナルマーカー設定
+    if (indicators) {
+      const signals = indicators.weekly_signals?.length
+        ? indicators.weekly_signals
+        : indicators.signals;
+      this.applyMarkers(signals, candles);
+      this.renderSignalLabels(signals, candles);
     }
 
     // チャート範囲をフィット
@@ -259,6 +267,7 @@ class StockChartManager {
 
     signals.forEach((sig) => {
       const date = sig.candle_date || latestDate;
+      if (!date || !candles.some((candle) => candle.time === date)) return;
       let color = '#38bdf8';
       let shape = 'arrowUp';
       let position = 'belowBar';
@@ -283,6 +292,10 @@ class StockChartManager {
         color = '#10b981';
         shape = 'arrowUp';
         position = 'aboveBar';
+      } else if (sig.rule_type === 'price_surge' && Number(sig.change_pct) < 0) {
+        color = '#ef4444';
+        shape = 'arrowDown';
+        position = 'aboveBar';
       }
 
       markers.push({
@@ -290,11 +303,76 @@ class StockChartManager {
         position: position,
         color: color,
         shape: shape,
-        text: sig.title,
+        text: `${sig.relative_label || date.slice(5)} ${sig.badge_text || sig.title}`,
       });
     });
 
-    this.candleSeries.setMarkers(markers);
+    // 同日シグナルを1つにまとめ、ラベルの重なりを防ぐ
+    const mergedMarkers = markers.reduce((result, marker) => {
+      const existing = result.find((item) => item.time === marker.time);
+      if (existing) {
+        existing.text = `${existing.text} / ${marker.text}`;
+      } else {
+        result.push({ ...marker });
+      }
+      return result;
+    }, []);
+
+    // Lightweight Charts はマーカーを時系列順で要求する
+    mergedMarkers.sort((a, b) => a.time.localeCompare(b.time));
+    mergedMarkers.forEach((marker, index) => {
+      marker.position = index % 2 === 0 ? 'aboveBar' : 'belowBar';
+    });
+    this.candleSeries.setMarkers(mergedMarkers);
+  }
+
+  renderSignalLabels(signals, candles) {
+    this.lastSignals = signals;
+    this.lastCandles = candles;
+    let layer = this.mainContainer.querySelector('.chart-signal-labels');
+    if (!layer) {
+      this.mainContainer.style.position = 'relative';
+      layer = document.createElement('div');
+      layer.className = 'chart-signal-labels';
+      Object.assign(layer.style, {
+        position: 'absolute',
+        inset: '0',
+        pointerEvents: 'none',
+        overflow: 'hidden',
+        zIndex: '5',
+      });
+      this.mainContainer.appendChild(layer);
+    }
+    layer.replaceChildren();
+    if (!signals?.length) return;
+
+    const validSignals = signals.filter((signal) =>
+      signal.candle_date && candles.some((candle) => candle.time === signal.candle_date)
+    );
+    validSignals.forEach((signal, index) => {
+      const x = this.mainChart.timeScale().timeToCoordinate(signal.candle_date);
+      const y = this.candleSeries.priceToCoordinate(signal.price);
+      if (x === null || y === null) return;
+
+      const label = document.createElement('span');
+      label.textContent = `${signal.relative_label || signal.candle_date.slice(5)} ${signal.badge_text || signal.title}`;
+      Object.assign(label.style, {
+        position: 'absolute',
+        left: `${Math.max(4, Math.min(x - 44, this.mainContainer.clientWidth - 180))}px`,
+        top: `${Math.min(8 + index * 22, this.mainContainer.clientHeight - 24)}px`,
+        maxWidth: '176px',
+        padding: '2px 5px',
+        borderRadius: '3px',
+        background: 'rgba(15, 23, 42, 0.92)',
+        border: '1px solid rgba(56, 189, 248, 0.75)',
+        color: '#e0f2fe',
+        font: '600 10px JetBrains Mono, monospace',
+        whiteSpace: 'nowrap',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+      });
+      layer.appendChild(label);
+    });
   }
 
   toggleSMA(visible) {
