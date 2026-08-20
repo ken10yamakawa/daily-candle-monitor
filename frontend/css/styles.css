@@ -431,6 +431,26 @@ body {
   transition: var(--transition);
 }
 
+.header-favorite-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 9px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: var(--bg-card);
+  color: #fbbf24;
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.header-favorite-btn:hover,
+.header-favorite-btn.active {
+  background: rgba(251, 191, 36, 0.18);
+  border-color: #fbbf24;
+}
+
 .watchlist-card:hover .card-delete-btn {
   opacity: 1;
 }
@@ -470,12 +490,14 @@ body {
   display: flex;
   align-items: baseline;
   gap: 20px;
+  flex-wrap: wrap;
 }
 
 .stock-title-area {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex-wrap: wrap;
 }
 
 .stock-name {
@@ -672,6 +694,13 @@ body {
 .sub-rsi-chart {
   width: 100%;
   height: 130px;
+  border-top: 1px solid var(--border-color);
+  padding-top: 8px;
+}
+
+.sub-volume-chart {
+  width: 100%;
+  height: 90px;
   border-top: 1px solid var(--border-color);
   padding-top: 8px;
 }

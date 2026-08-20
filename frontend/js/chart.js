@@ -7,6 +7,7 @@ class StockChartManager {
     this.rsiContainer = document.getElementById(rsiContainerId);
 
     this.mainChart = null;
+    this.volumeChart = null;
     this.rsiChart = null;
 
     // Series
@@ -80,12 +81,18 @@ class StockChartManager {
       wickDownColor: '#ef4444',
     });
 
-    // 出来高シリーズ (メイン下部にオーバーレイ)
-    this.volumeSeries = this.mainChart.addHistogramSeries({
+    // 出来高は価格チャートと分離
+    this.volumeChart = LightweightCharts.createChart(document.getElementById('volumeChartContainer'), {
+      ...chartOptions,
+      height: 90,
+      rightPriceScale: {
+        borderColor: '#1e293b',
+        scaleMargins: { top: 0.1, bottom: 0.1 },
+      },
+    });
+    this.volumeSeries = this.volumeChart.addHistogramSeries({
       color: '#3b82f6',
       priceFormat: { type: 'volume' },
-      priceScaleId: '', // オーバーレイ
-      scaleMargins: { top: 0.8, bottom: 0 },
     });
 
     // 移動平均線シリーズ
@@ -162,6 +169,13 @@ class StockChartManager {
     this.rsiChart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
       if (range) {
         this.mainChart.timeScale().setVisibleLogicalRange(range);
+        this.volumeChart.timeScale().setVisibleLogicalRange(range);
+      }
+    });
+    this.volumeChart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
+      if (range) {
+        this.mainChart.timeScale().setVisibleLogicalRange(range);
+        this.rsiChart.timeScale().setVisibleLogicalRange(range);
       }
     });
 
@@ -170,6 +184,7 @@ class StockChartManager {
       this.resize();
     });
     resizeObserver.observe(this.mainContainer);
+    resizeObserver.observe(document.getElementById('volumeChartContainer'));
     resizeObserver.observe(this.rsiContainer);
   }
 
@@ -179,9 +194,6 @@ class StockChartManager {
         width: this.mainContainer.clientWidth,
         height: this.mainContainer.clientHeight || 360,
       });
-      if (this.lastSignals && this.lastCandles) {
-        this.renderSignalLabels(this.lastSignals, this.lastCandles);
-      }
     }
     if (this.rsiChart && this.rsiContainer) {
       this.rsiChart.applyOptions({
@@ -216,6 +228,7 @@ class StockChartManager {
           color: c.close >= c.open ? 'rgba(16, 185, 129, 0.4)' : 'rgba(239, 68, 68, 0.4)',
         }))
       );
+      this.volumeChart.timeScale().fitContent();
     }
 
     // 3. 移動平均線設定
@@ -244,11 +257,14 @@ class StockChartManager {
 
     // 6. 過去1週間のシグナルマーカー設定
     if (indicators) {
-      const signals = indicators.weekly_signals?.length
-        ? indicators.weekly_signals
-        : indicators.signals;
+      const signals = [...(indicators.weekly_signals || []), ...(indicators.signals || [])]
+        .filter((signal, index, allSignals) => {
+          const key = `${signal.candle_date || ''}_${signal.rule_type || ''}`;
+          return allSignals.findIndex((item) =>
+            `${item.candle_date || ''}_${item.rule_type || ''}` === key
+          ) === index;
+        });
       this.applyMarkers(signals, candles);
-      this.renderSignalLabels(signals, candles);
     }
 
     // チャート範囲をフィット
@@ -262,117 +278,79 @@ class StockChartManager {
       return;
     }
 
-    const markers = [];
+    const markersByDate = new Map();
     const latestDate = candles[candles.length - 1]?.time;
 
     signals.forEach((sig) => {
       const date = sig.candle_date || latestDate;
       if (!date || !candles.some((candle) => candle.time === date)) return;
-      let color = '#38bdf8';
-      let shape = 'arrowUp';
-      let position = 'belowBar';
+      const isUp = this.isUpSignal(sig.rule_type);
 
-      if (sig.rule_type === 'golden_cross') {
-        color = '#10b981';
-        shape = 'arrowUp';
-        position = 'belowBar';
-      } else if (sig.rule_type === 'dead_cross') {
-        color = '#ef4444';
-        shape = 'arrowDown';
-        position = 'aboveBar';
-      } else if (sig.rule_type === 'rsi_oversold') {
-        color = '#10b981';
-        shape = 'circle';
-        position = 'belowBar';
-      } else if (sig.rule_type === 'rsi_overbought') {
-        color = '#f59e0b';
-        shape = 'circle';
-        position = 'aboveBar';
-      } else if (sig.rule_type === 'price_breakout_high') {
-        color = '#10b981';
-        shape = 'arrowUp';
-        position = 'aboveBar';
-      } else if (sig.rule_type === 'price_surge' && Number(sig.change_pct) < 0) {
-        color = '#ef4444';
-        shape = 'arrowDown';
-        position = 'aboveBar';
-      }
-
-      markers.push({
+      const marker = markersByDate.get(date) || {
         time: date,
-        position: position,
-        color: color,
-        shape: shape,
-        text: `${sig.relative_label || date.slice(5)} ${sig.badge_text || sig.title}`,
-      });
+        upCount: 0,
+        downCount: 0,
+        labels: [],
+        age: sig.relative_label || (sig.days_ago === 0 ? '今日' : `${sig.days_ago}日前`),
+      };
+      if (isUp) marker.upCount += 1;
+      else marker.downCount += 1;
+      const label = this.getMarkerText(sig);
+      if (!marker.labels.includes(label)) marker.labels.push(label);
+      markersByDate.set(date, marker);
     });
 
-    // 同日シグナルを1つにまとめ、ラベルの重なりを防ぐ
-    const mergedMarkers = markers.reduce((result, marker) => {
-      const existing = result.find((item) => item.time === marker.time);
-      if (existing) {
-        existing.text = `${existing.text} / ${marker.text}`;
-      } else {
-        result.push({ ...marker });
-      }
-      return result;
-    }, []);
+    const markers = Array.from(markersByDate.values()).map((marker) => {
+      const isUp = marker.upCount >= marker.downCount;
+      return {
+        time: marker.time,
+        position: isUp ? 'belowBar' : 'aboveBar',
+        color: isUp ? '#10b981' : '#ef4444',
+        shape: isUp ? 'arrowUp' : 'arrowDown',
+        text: `${marker.age} ${marker.labels.join('・')}`,
+      };
+    });
 
     // Lightweight Charts はマーカーを時系列順で要求する
-    mergedMarkers.sort((a, b) => a.time.localeCompare(b.time));
-    mergedMarkers.forEach((marker, index) => {
-      marker.position = index % 2 === 0 ? 'aboveBar' : 'belowBar';
+    markers.sort((a, b) => a.time.localeCompare(b.time));
+    // 隣接する日付のラベルが同じ側で重ならないよう、表示側を交互にする。
+    markers.forEach((marker, index) => {
+      const previous = markers[index - 1];
+      if (previous && previous.position === marker.position) {
+        marker.position = marker.position === 'aboveBar' ? 'belowBar' : 'aboveBar';
+      }
     });
-    this.candleSeries.setMarkers(mergedMarkers);
+    this.candleSeries.setMarkers(markers);
   }
 
-  renderSignalLabels(signals, candles) {
-    this.lastSignals = signals;
-    this.lastCandles = candles;
-    let layer = this.mainContainer.querySelector('.chart-signal-labels');
-    if (!layer) {
-      this.mainContainer.style.position = 'relative';
-      layer = document.createElement('div');
-      layer.className = 'chart-signal-labels';
-      Object.assign(layer.style, {
-        position: 'absolute',
-        inset: '0',
-        pointerEvents: 'none',
-        overflow: 'hidden',
-        zIndex: '5',
-      });
-      this.mainContainer.appendChild(layer);
-    }
-    layer.replaceChildren();
-    if (!signals?.length) return;
+  isUpSignal(ruleType) {
+    return [
+      'golden_cross',
+      'macd_golden_cross',
+      'price_breakout_high',
+      'volume_surge_up',
+      'bb_upper_touch',
+      'rsi_oversold',
+      'price_surge',
+    ].includes(ruleType);
+  }
 
-    const validSignals = signals.filter((signal) =>
-      signal.candle_date && candles.some((candle) => candle.time === signal.candle_date)
-    );
-    validSignals.forEach((signal, index) => {
-      const x = this.mainChart.timeScale().timeToCoordinate(signal.candle_date);
-      const y = this.candleSeries.priceToCoordinate(signal.price);
-      if (x === null || y === null) return;
+  getMarkerText(signal) {
+    const ruleType = signal.rule_type || '';
+    let name = signal.badge_text || signal.title || 'シグナル';
+    if (ruleType === 'golden_cross') name = 'GC (5x25)';
+    else if (ruleType === 'dead_cross') name = 'DC (5x25)';
+    else if (ruleType === 'rsi_oversold') name = 'RSI 売られすぎ';
+    else if (ruleType === 'rsi_overbought') name = 'RSI 買われすぎ';
+    else if (ruleType.includes('bb_upper')) name = 'BB +2σ';
+    else if (ruleType.includes('bb_lower')) name = 'BB -2σ';
+    else if (ruleType === 'price_surge' || ruleType === 'rapid_rise') name = '急騰';
+    else if (ruleType === 'price_plunge' || ruleType === 'rapid_fall') name = '急落';
+    else if (ruleType.includes('volume_surge')) name = '出来高急増';
+    else if (ruleType.includes('new_high')) name = '新高値';
+    else if (ruleType.includes('new_low')) name = '新安値';
 
-      const label = document.createElement('span');
-      label.textContent = `${signal.relative_label || signal.candle_date.slice(5)} ${signal.badge_text || signal.title}`;
-      Object.assign(label.style, {
-        position: 'absolute',
-        left: `${Math.max(4, Math.min(x - 44, this.mainContainer.clientWidth - 180))}px`,
-        top: `${Math.min(8 + index * 22, this.mainContainer.clientHeight - 24)}px`,
-        maxWidth: '176px',
-        padding: '2px 5px',
-        borderRadius: '3px',
-        background: 'rgba(15, 23, 42, 0.92)',
-        border: '1px solid rgba(56, 189, 248, 0.75)',
-        color: '#e0f2fe',
-        font: '600 10px JetBrains Mono, monospace',
-        whiteSpace: 'nowrap',
-        overflow: 'hidden',
-        textOverflow: 'ellipsis',
-      });
-      layer.appendChild(label);
-    });
+    return name;
   }
 
   toggleSMA(visible) {

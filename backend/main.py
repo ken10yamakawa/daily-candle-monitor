@@ -263,6 +263,18 @@ def delete_watchlist(item_id: int, db: Session = Depends(get_db)):
     return {"status": "ok", "message": "削除しました"}
 
 
+@app.put("/api/watchlist/{item_id}/favorite")
+def toggle_watchlist_favorite(item_id: int, db: Session = Depends(get_db)):
+    """お気に入り状態を切り替え"""
+    item = db.query(WatchlistItem).filter(WatchlistItem.id == item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="銘柄が見つかりません")
+    item.is_favorite = not item.is_favorite
+    db.commit()
+    db.refresh(item)
+    return item.to_dict()
+
+
 @app.get("/api/stock/{symbol}/chart")
 def get_stock_chart(symbol: str, period: str = Query("1y", pattern="^(1mo|3mo|6mo|1y|2y|5y|max)$")):
     """指定銘柄の日足チャート用データおよび計算済みテクニカル指標を取得"""

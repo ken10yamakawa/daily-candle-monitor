@@ -1,6 +1,6 @@
 import datetime
 import json
-from sqlalchemy import create_engine, Column, Integer, String, Float, Boolean, DateTime, Text
+from sqlalchemy import create_engine, Column, Integer, String, Float, Boolean, DateTime, Text, inspect, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
@@ -20,6 +20,7 @@ class WatchlistItem(Base):
     category = Column(String(50), default="その他")
     currency = Column(String(10), default="JPY")
     is_active = Column(Boolean, default=True)
+    is_favorite = Column(Boolean, default=False, nullable=False)
     sort_order = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
@@ -31,6 +32,7 @@ class WatchlistItem(Base):
             "category": self.category,
             "currency": self.currency,
             "is_active": self.is_active,
+            "is_favorite": self.is_favorite,
             "sort_order": self.sort_order,
             "created_at": self.created_at.isoformat() if self.created_at else None
         }
@@ -112,6 +114,11 @@ class AppSetting(Base):
 
 def init_db():
     Base.metadata.create_all(bind=engine)
+    # create_all does not alter existing SQLite tables, so migrate older databases.
+    columns = {column["name"] for column in inspect(engine).get_columns("watchlist_items")}
+    if "is_favorite" not in columns:
+        with engine.begin() as connection:
+            connection.execute(text("ALTER TABLE watchlist_items ADD COLUMN is_favorite BOOLEAN NOT NULL DEFAULT 0"))
     db = SessionLocal()
     try:
         # デフォルトのウォッチリスト銘柄を追加（存在しない場合）

@@ -32,8 +32,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // 初期データ読み込み（チャートは遅延ロード）
   await loadWatchlist();
-  await loadRules();
-  await loadAlerts();
 
   // 自動監視タイマー開始
   startMonitoringTimer();
@@ -118,16 +116,16 @@ function setupEventListeners() {
     });
   });
 
+  // お気に入り状態の切り替えはカード内ボタンから行う
+  document.getElementById('currentStockFavorite').addEventListener('click', (event) => {
+    const itemId = Number(event.currentTarget.dataset.itemId);
+    if (itemId) toggleFavorite(event, itemId);
+  });
+
   // ウォッチリストのソートセレクト
   document.getElementById('watchlistSortSelect').addEventListener('change', (e) => {
     state.sortKey = e.target.value;
     renderWatchlist();
-  });
-
-  // サマリーテーブルのソートセレクト
-  document.getElementById('summarySortSelect').addEventListener('change', (e) => {
-    state.summarySortKey = e.target.value;
-    renderMarketSummary();
   });
 
   // 特異シグナルフィルターチェックボックス
@@ -145,7 +143,6 @@ function setupEventListeners() {
       }
       updateSignalFilterBadge();
       renderWatchlist();
-      renderMarketSummary();
     });
   });
 
@@ -162,30 +159,10 @@ function setupEventListeners() {
       });
       updateSignalFilterBadge();
       renderWatchlist();
-      renderMarketSummary();
       showToast('シグナル絞り込みをクリアしました', 'info');
     };
     clearBtn.addEventListener('click', doClear);
   }
-
-  // サマリーテーブルのソータブルヘッダー
-  document.addEventListener('click', (e) => {
-    const th = e.target.closest('.th-sortable');
-    if (!th) return;
-    const sortKey = th.dataset.sort;
-    if (!sortKey) return;
-    state.summarySortKey = sortKey;
-    const sel = document.getElementById('summarySortSelect');
-    if (sel) sel.value = sortKey;
-    // ヘッダー矢印更新
-    document.querySelectorAll('.th-sortable .sort-arrow').forEach((el) => {
-      el.classList.remove('active');
-      el.textContent = '';
-    });
-    const arrow = th.querySelector('.sort-arrow');
-    if (arrow) { arrow.classList.add('active'); arrow.textContent = '↓'; }
-    renderMarketSummary();
-  });
 
   // 全銘柄一括追加ボタン (サイドバー & ヘッダー両方にバインド)
   const addAllBtns = [document.getElementById('btnAddAllUniverses'), document.getElementById('btnHeaderAddAll')].filter(Boolean);
@@ -219,7 +196,6 @@ function setupEventListeners() {
       showToast(`スキャン完了: ${data.scanned_count} 銘柄をチェックしました`, 'success');
       state.countdownSeconds = 180;
       await loadWatchlist();
-      await loadAlerts();
       if (state.currentSymbol) {
         await loadChartData(state.currentSymbol, state.currentPeriod);
       }
@@ -232,21 +208,6 @@ function setupEventListeners() {
           <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
         <span>即時スキャン</span>`;
-    }
-  });
-
-  // アラート履歴アクション
-  document.getElementById('btnReadAllAlerts').addEventListener('click', async () => {
-    await fetch('/api/alerts/read_all', { method: 'POST' });
-    await loadAlerts();
-    showToast('すべてのアラートを既読にしました', 'info');
-  });
-
-  document.getElementById('btnClearAlerts').addEventListener('click', async () => {
-    if (confirm('アラート履歴をすべて削除しますか？')) {
-      await fetch('/api/alerts/clear', { method: 'POST' });
-      await loadAlerts();
-      showToast('アラート履歴をクリアしました', 'info');
     }
   });
 
@@ -289,40 +250,6 @@ function setupEventListeners() {
     }
   });
 
-  // ルール追加モーダル
-  const addRuleModal = document.getElementById('addRuleModal');
-  document.getElementById('btnOpenAddRuleModal').addEventListener('click', () => {
-    updateRuleSymbolOptions();
-    addRuleModal.classList.add('open');
-  });
-  document.getElementById('closeAddRuleModal').addEventListener('click', () => {
-    addRuleModal.classList.remove('open');
-  });
-  document.getElementById('cancelAddRule').addEventListener('click', () => {
-    addRuleModal.classList.remove('open');
-  });
-
-  document.getElementById('addRuleForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const symbol = document.getElementById('ruleTargetSymbol').value;
-    const rule_type = document.getElementById('ruleTypeSelect').value;
-    const title = document.getElementById('ruleTitleInput').value.trim();
-
-    try {
-      const res = await fetch('/api/rules', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ symbol, rule_type, title }),
-      });
-      if (!res.ok) throw new Error('ルール追加に失敗しました');
-      showToast(`監視ルール「${title}」を追加しました`, 'success');
-      addRuleModal.classList.remove('open');
-      document.getElementById('addRuleForm').reset();
-      await loadRules();
-    } catch (err) {
-      showToast(err.message, 'danger');
-    }
-  });
 }
 
 // 全銘柄一括追加処理 (PC・モバイル共通)
@@ -365,16 +292,16 @@ async function loadWatchlist() {
     const res = await fetch('/api/watchlist?full=false');
     state.watchlist = await res.json();
     renderWatchlist();
-    renderMarketSummary();
 
     // 選択銘柄がなければ先頭を選択
     if (state.watchlist.length > 0) {
-      const exists = state.watchlist.some((w) => w.symbol === state.currentSymbol);
-      if (!exists) {
-        state.currentSymbol = state.watchlist[0].symbol;
+      const currentItem = state.watchlist.find((w) => w.symbol === state.currentSymbol);
+      const availableItem = state.watchlist.find((w) => Number(w.current_price) > 0);
+      if (!currentItem || Number(currentItem.current_price) <= 0) {
+        state.currentSymbol = availableItem?.symbol || state.watchlist[0].symbol;
       }
       // チャート表示時に完全な指標を取得（遅延ロード）
-      await loadChartData(state.currentSymbol, state.currentPeriod);
+      loadChartData(state.currentSymbol, state.currentPeriod);
     }
 
     // バックグラウンドで完全版を取得して更新（シグナル表示用）
@@ -406,7 +333,6 @@ async function loadFullWatchlistAsync() {
     
     // UI を再レンダリング
     renderWatchlist();
-    renderMarketSummary();
   } catch (err) {
     console.error('Error loading full watchlist:', err);
   }
@@ -539,6 +465,7 @@ function renderWatchlist() {
   // 1. カテゴリフィルター
   const catFiltered = state.watchlist.filter((item) => {
     if (state.currentCategory === 'ALL') return true;
+    if (state.currentCategory === 'FAVORITES') return item.is_favorite;
     return item.category === state.currentCategory;
   });
 
@@ -613,6 +540,20 @@ function renderWatchlist() {
     .join('');
 }
 
+async function toggleFavorite(event, id) {
+  event.stopPropagation();
+  try {
+    const res = await fetch(`/api/watchlist/${id}/favorite`, { method: 'PUT' });
+    if (!res.ok) throw new Error('お気に入りの更新に失敗しました');
+    const updated = await res.json();
+    const item = state.watchlist.find((entry) => entry.id === id);
+    if (item) item.is_favorite = updated.is_favorite;
+    renderWatchlist();
+  } catch (err) {
+    showToast(err.message, 'danger');
+  }
+}
+
 async function selectStock(symbol) {
   state.currentSymbol = symbol;
   renderWatchlist();
@@ -669,10 +610,20 @@ function updateStockHeader(data) {
   const { symbol, info, indicators } = data;
   const isUp = (info.change || 0) >= 0;
   const sign = isUp ? '+' : '';
+  const watchlistItem = state.watchlist.find((item) => item.symbol === symbol);
+  const displayName = watchlistItem?.display_name || watchlistItem?.name || info.name || symbol;
+  const favoriteButton = document.getElementById('currentStockFavorite');
 
-  document.getElementById('currentStockName').textContent = info.name || symbol;
+  document.getElementById('currentStockName').textContent = displayName;
   document.getElementById('currentStockSymbol').textContent = symbol;
   document.getElementById('currentStockCategory').textContent = info.currency === 'JPY' ? '日本株' : '米国株/その他';
+  if (favoriteButton) {
+    favoriteButton.dataset.itemId = watchlistItem?.id || '';
+    favoriteButton.classList.toggle('active', Boolean(watchlistItem?.is_favorite));
+    favoriteButton.textContent = watchlistItem?.is_favorite ? '★ 登録済み' : '☆ お気に入り';
+    favoriteButton.title = watchlistItem?.is_favorite ? 'お気に入りから外す' : 'お気に入りに追加';
+    favoriteButton.style.display = watchlistItem ? 'inline-flex' : 'none';
+  }
 
   document.getElementById('currentStockPrice').textContent = formatCurrency(info.current_price, info.currency);
 
@@ -965,18 +916,7 @@ function startMonitoringTimer() {
 }
 
 async function autoRefresh() {
-  const prevUnread = state.unreadCount;
   await loadWatchlist();
-  await loadAlerts();
-  if (state.currentSymbol) {
-    await loadChartData(state.currentSymbol, state.currentPeriod);
-  }
-
-  // 新規アラートがあればチャイム音
-  if (state.unreadCount > prevUnread) {
-    playNotificationSound();
-    showToast(`新しい日足監視シグナルが検知されました (+${state.unreadCount - prevUnread} 件)`, 'info');
-  }
 }
 
 // Web Audio API によるチャイム音
