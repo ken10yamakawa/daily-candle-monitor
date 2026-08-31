@@ -42,13 +42,6 @@
     </div>
 
     <div class="header-right">
-      <button class="btn btn-accent btn-icon" id="btnHeaderAddAll" title="全ユニバース銘柄を一括監視リストに追加">
-        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M12 5v14M5 12h14" stroke-linecap="round"/>
-        </svg>
-        <span>全銘柄追加</span>
-      </button>
-
       <button class="btn btn-secondary btn-icon" id="btnScanNow" title="全銘柄の日足を即時スキャン">
         <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -76,12 +69,8 @@
           <span class="watchlist-count" id="watchlistCount">0 銘柄</span>
         </div>
 
-        <!-- 全銘柄追加 + ソートコントロール行 -->
+        <!-- ソートコントロール行 -->
         <div class="sidebar-controls-row">
-          <button class="btn btn-accent btn-sm btn-icon" id="btnAddAllUniverses" title="全ユニバースの銘柄を一括追加">
-            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
-            <span>全銘柄追加</span>
-          </button>
           <div class="sort-control">
             <span class="sort-label">並び替え:</span>
             <select id="watchlistSortSelect" class="sort-select">
@@ -372,7 +361,8 @@
   <div class="toast-container" id="toastContainer"></div>
 
   <!-- Scripts -->
+  <script src="/static/js/watchlistStorage.js?v=20260831-01"></script>
   <script src="/static/js/chart.js?v=20260820-15"></script>
-  <script src="/static/js/app.js?v=20260820-16"></script>
+  <script src="/static/js/app.js?v=20260820-17"></script>
 </body>
 </html>

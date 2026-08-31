@@ -2,6 +2,8 @@
  * Daily Candle Monitor - Main Frontend Application Logic
  */
 
+const watchlistStorage = createStorageAdapter ? createStorageAdapter() : null;
+
 // アプリケーション状態
 const state = {
   currentSymbol: '7203.T',
@@ -26,7 +28,19 @@ const state = {
 document.addEventListener('DOMContentLoaded', async () => {
   // チャート初期化を遅延ロード（軽量な初期化のみ）
   // 実際のチャート描画が必要な時に初期化する
-  
+
+  const cachedItems = watchlistStorage?.loadWatchlistSnapshot({ ttlMs: 5 * 60 * 1000 }) || [];
+  if (cachedItems.length > 0) {
+    state.watchlist = cachedItems;
+    renderWatchlist();
+    if (state.currentSymbol) {
+      const match = cachedItems.find((w) => w.symbol === state.currentSymbol) || cachedItems[0];
+      if (match) {
+        state.currentSymbol = match.symbol;
+      }
+    }
+  }
+
   // イベントリスナー設定
   setupEventListeners();
 
@@ -164,12 +178,6 @@ function setupEventListeners() {
     clearBtn.addEventListener('click', doClear);
   }
 
-  // 全銘柄一括追加ボタン (サイドバー & ヘッダー両方にバインド)
-  const addAllBtns = [document.getElementById('btnAddAllUniverses'), document.getElementById('btnHeaderAddAll')].filter(Boolean);
-  addAllBtns.forEach((btn) => {
-    btn.addEventListener('click', handleBatchAddAll);
-  });
-
   // 下部タブ切り替え
   const panelTabs = document.querySelectorAll('.panel-tab-btn');
   panelTabs.forEach((tab) => {
@@ -240,6 +248,9 @@ function setupEventListeners() {
         const err = await res.json();
         throw new Error(err.detail || '追加に失敗しました');
       }
+      if (watchlistStorage) {
+        watchlistStorage.saveSymbol({ symbol, name: name || symbol, category });
+      }
       showToast(`銘柄 ${symbol} を追加しました`, 'success');
       addStockModal.classList.remove('open');
       document.getElementById('addStockForm').reset();
@@ -252,46 +263,28 @@ function setupEventListeners() {
 
 }
 
-// 全銘柄一括追加処理 (PC・モバイル共通)
-async function handleBatchAddAll() {
-  const addAllBtns = [document.getElementById('btnAddAllUniverses'), document.getElementById('btnHeaderAddAll')].filter(Boolean);
-  
-  // モバイルでも確実に動作するシンプルな確認
-  const ok = window.confirm('全ユニバース（日経225・東証グロース・高配当・NASDAQ100・S&P500・暗号資産＋為替）の全400+銘柄を監視リストに追加しますか？');
-  if (!ok) return;
-
-  addAllBtns.forEach((b) => {
-    b.disabled = true;
-    b.innerHTML = '<span>追加中...</span>';
-  });
-  showToast('全銘柄をウォッチリストに追加しています...', 'info');
-
-  try {
-    const res = await fetch('/api/watchlist/add_all_universes', { method: 'POST' });
-    const data = await res.json();
-    showToast(`✅ ${data.added_count} 銘柄を追加しました（既存スキップ: ${data.skipped_count}）`, 'success');
-    await loadWatchlist();
-  } catch (err) {
-    showToast('全銘柄追加に失敗しました', 'danger');
-  } finally {
-    addAllBtns.forEach((b) => {
-      b.disabled = false;
-      b.innerHTML = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg><span>全銘柄追加</span>';
-    });
-  }
-}
-
 // ========================================================
 // データ読み込み & レンダリング
 // ========================================================
 
 async function loadWatchlist() {
+  const cachedItems = watchlistStorage?.loadWatchlistSnapshot({ ttlMs: 5 * 60 * 1000 }) || [];
+
   try {
     // 軽量版ウォッチリストを取得（初期表示高速化）
     // full=false でシグナル・指標計算をスキップ
     const res = await fetch('/api/watchlist?full=false');
-    state.watchlist = await res.json();
-    renderWatchlist();
+    if (!res.ok) throw new Error('ウォッチリスト取得に失敗しました');
+
+    const freshItems = await res.json();
+    if (Array.isArray(freshItems) && freshItems.length > 0) {
+      state.watchlist = freshItems;
+      watchlistStorage?.saveWatchlistSnapshot(freshItems, 5 * 60 * 1000);
+      renderWatchlist();
+    } else {
+      state.watchlist = cachedItems;
+      renderWatchlist();
+    }
 
     // 選択銘柄がなければ先頭を選択
     if (state.watchlist.length > 0) {
@@ -308,6 +301,10 @@ async function loadWatchlist() {
     loadFullWatchlistAsync();
   } catch (err) {
     console.error('Error loading watchlist:', err);
+    if (cachedItems.length > 0) {
+      state.watchlist = cachedItems;
+      renderWatchlist();
+    }
   }
 }
 
@@ -578,6 +575,9 @@ async function deleteStock(event, id, symbol) {
   if (confirm(`銘柄 ${symbol} をウォッチリストから削除しますか？`)) {
     try {
       await fetch(`/api/watchlist/${id}`, { method: 'DELETE' });
+      if (watchlistStorage) {
+        watchlistStorage.removeSymbol(symbol);
+      }
       showToast(`銘柄 ${symbol} を削除しました`, 'info');
       await loadWatchlist();
     } catch (err) {
